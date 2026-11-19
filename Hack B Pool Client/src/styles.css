@@ -423,12 +423,13 @@ nav a[aria-current="page"] {
   background-clip: text;
   color: transparent;
 }
-.columns { grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); align-items: start; }
+/* Cards in a row stretch to the same height. */
+.columns { grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); align-items: stretch; }
 .panel { min-width: 0; }
 .panel header, .entry, .remote { padding: 24px; }
 .panel header p:not(.kicker), .entry > p:not(.kicker), .remote > p:not(.kicker) { font-size: .9rem; margin-top: 6px; }
 .panel .kicker { margin-bottom: 8px; }
-.entry { position: sticky; top: 96px; background: radial-gradient(ellipse at 100% 0, #d9b56c14, transparent 70%), var(--glass); }
+.entry { background: radial-gradient(ellipse at 100% 0, #d9b56c14, transparent 70%), var(--glass); }
 
 /* Scroll reveal: only hide things once the observer is running. */
 .reveal-ready [data-reveal] { opacity: 0; translate: 0 26px; transition: opacity 1s var(--ease) var(--d, 0ms), translate 1s var(--ease) var(--d, 0ms); }
@@ -525,6 +526,22 @@ tbody tr.top-1 { background: linear-gradient(90deg, #d9b56c12, transparent 60%);
   transition: width .6s var(--ease);
 }
 .form-cell .fb-form { gap: 4px; }
+/* Desktop: the standings scroll inside their card (4 rows, with the 5th peeking out to show there
+   is more) with the header pinned, so the
+   card beside them keeps a sensible height. Phones stack the cards and show the full list. */
+@media (min-width: 901px) {
+  .standings-scroll {
+    max-height: 296px;
+    overflow-y: auto;
+    border-radius: 0 0 20px 20px;
+    scrollbar-width: thin;
+    scrollbar-color: #d9b56c55 transparent;
+  }
+  .standings-scroll thead th { position: sticky; top: 0; z-index: 1; background: #120d13; box-shadow: inset 0 -1px 0 var(--line); }
+  .standings-scroll.more { mask-image: linear-gradient(#000 calc(100% - 26px), #0000); -webkit-mask-image: linear-gradient(#000 calc(100% - 26px), #0000); }
+  .standings-scroll::-webkit-scrollbar { width: 6px; }
+  .standings-scroll::-webkit-scrollbar-thumb { background: #d9b56c55; border-radius: 6px; }
+}
 .empty {
   min-height: 170px;
   margin: 0 24px 24px;
@@ -969,7 +986,6 @@ tbody tr.top-1 { background: linear-gradient(90deg, #d9b56c12, transparent 60%);
   .hero { grid-template-columns: 1fr; }
   .hero-table { max-width: 560px; }
   .columns { grid-template-columns: 1fr; }
-  .entry { position: relative; top: 0; }
 }
 @media (max-width: 720px) {
   .top-inner, .shell { width: calc(100% - 32px); }
