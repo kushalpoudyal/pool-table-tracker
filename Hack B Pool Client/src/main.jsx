@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { api, post } from './api';
-import TableArt from './TableArt';
 import Controller from './Controller';
 import LiveFeed from './LiveFeed';
 import './styles.css';
@@ -26,7 +25,7 @@ export function PlayerEntry({onAdded}) {
   return <form onSubmit={submit}>
     <label htmlFor="player-name">Player name</label>
     <input id="player-name" value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Alex Morgan" required maxLength={48}/>
-    <button className="btn ink wide" disabled={busy || !name.trim()}>{busy ? 'Adding...' : '+ Add player'}</button>
+    <button className="btn primary wide" disabled={busy || !name.trim()}>{busy ? 'Adding...' : '+ Add player'}</button>
     <small role="status">{note}</small>
   </form>;
 }
@@ -42,23 +41,27 @@ function Dashboard({board, add, ready}) {
   const [filter,setFilter] = useState('all');
   const history = matches.filter(m=>filter==='all' || m.status===filter);
   return <>
-    <section className="hero"><div><p className="kicker light">CLUBHOUSE &nbsp; / &nbsp; TABLE 01</p>
+    <section className="hero"><div>
       <h1>The score room<span>.</span></h1><p>Your pool club's standings, players and match results.</p>
-      <a className="btn gold" href="/play">Start a game <b aria-hidden="true">&#8599;</b></a></div>
-      <TableArt/>
+      <a className="btn primary" href="/play">Start a game <span aria-hidden="true">↗</span></a></div>
     </section>
     <div className="stats">
-      {[[players.length,'Players','On the roster'],[finished.length,'Games scored','Confirmed results'],[matches.filter(m=>m.status==='pending').length,'In review','Awaiting a winner']].map(([value,label,sub],i)=><div className="stat" key={label}><div><p className="kicker">{label}</p><small>{sub}</small></div><strong>{ready ? String(value).padStart(2,'0') : '–'}</strong></div>)}
+      {[[players.length,'Players','On the roster'],[finished.length,'Games scored','Confirmed results'],[matches.filter(m=>m.status==='pending').length,'In review','Awaiting a winner']].map(([value,label,sub])=><div className="stat" key={label}><p>{label}</p><strong>{ready ? value : '–'}</strong><small>{sub}</small></div>)}
     </div>
-    {matches.some(m=>m.status==='recording') && <section className="panel watch-banner"><div><p className="kicker">AT THE TABLE NOW</p><h2>Game in progress</h2><p>Open Watch games to see the live feed from the phone.</p></div><a className="btn ink" href="/watch">Watch games &rarr;</a></section>}
-    <div className="columns"><section className="panel" id="standings"><header><p className="kicker">01 &nbsp; / &nbsp; THE LADDER</p><h2>Leaderboard</h2><p>Ranked by wins, then fewest losses.</p></header>
-      <table><thead><tr>{['Rank','Player','W','L','Win %'].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>
-        {sorted.map((p,i)=><tr key={p.id}><td className="rank">{String(i+1).padStart(2,'0')}</td><th scope="row">{p.name}</th><td>{p.wins}</td><td>{p.played-p.wins}</td><td>{p.played ? `${Math.round(p.wins/p.played*100)}%` : '–'}</td></tr>)}
-      </tbody></table>
+    {matches.some(m=>m.status==='recording') && <section className="panel watch-banner"><div><p className="kicker">AT THE TABLE NOW</p><h2>Game in progress</h2><p>Open Watch games to see the live feed from the phone.</p></div><a className="btn primary" href="/watch">Watch games &rarr;</a></section>}
+    <div className="columns"><section className="panel" id="standings"><header><h2>Leaderboard</h2><p>Ranked by wins, then fewest losses.</p></header>
+      {sorted.length > 0 && <table><thead><tr>{['Rank','Player','W','L','Win %'].map(h=><th scope="col" key={h}>{h}</th>)}</tr></thead><tbody>
+        {sorted.map((p,i)=>{
+          const winRate = p.played ? Math.round(p.wins / p.played * 100) : null;
+          return <tr key={p.id}><td><span className={i === 0 ? 'rank first' : 'rank'}>{i+1}</span></td><th scope="row">{p.name}</th><td>{p.wins}</td><td>{p.played-p.wins}</td><td>
+            {winRate === null ? '–' : <span className="win-rate"><span aria-hidden="true" className="win-track"><span style={{width: `${winRate}%`}}/></span>{winRate}%</span>}
+          </td></tr>;
+        })}
+      </tbody></table>}
       {!sorted.length && <div className="empty"><Ball n={1}/><h3>{ready?'The ladder is open':'Loading standings'}</h3><p>{ready?'Add your first player to claim a spot on the board.':'Connecting to the clubhouse.'}</p></div>}
     </section>
-    <aside className="panel entry"><p className="kicker">02 &nbsp; / &nbsp; THE ROSTER</p><h2>Add a player</h2><p>Register once. Pick a name at the table.</p><PlayerEntry onAdded={add}/></aside></div>
-    <section className="panel history" id="history"><header><div><p className="kicker">03 &nbsp; / &nbsp; TABLE LOG</p><h2>Match history</h2></div>
+    <aside className="panel entry"><h2>Add a player</h2><p>New players can be selected in the controller.</p><PlayerEntry onAdded={add}/></aside></div>
+    <section className="panel history" id="history"><header><h2>Match history</h2>
       <select aria-label="Filter match history" value={filter} onChange={e=>setFilter(e.target.value)}>{Object.entries({all:'All matches',recording:'Recording',pending:'In review',complete:'Scored',interrupted:'Interrupted'}).map(([v,s])=><option key={v} value={v}>{s}</option>)}</select></header>
       {history.map(m=><article className="match" key={m.id}><div><small>GAME {String(m.id).padStart(3,'0')} &middot; {new Date(m.started).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</small><h3>{ranks.get(m.a).name} <em>vs</em> {ranks.get(m.b).name}</h3></div><span className={`badge ${m.status}`}>{m.status==='complete'?`${ranks.get(m.winner).name} won`:({recording:'Recording',pending:'Awaiting analysis',interrupted:'Interrupted'})[m.status]}</span></article>)}
       {!history.length && <p className="history-empty">{!ready?'Connecting to the match log...':matches.length?'No matches with this status.':'No matches yet. Start a game from the phone controller.'}</p>}
@@ -72,7 +75,7 @@ function WatchGames({board, ready}) {
     <h1>Watch games<span>.</span></h1><p>Choose a game below. Anyone on the club network can watch, no sign-in needed.</p>
     <p className="kicker">{ready?`${games.length} GAME${games.length===1?'':'S'} IN PROGRESS`:'CONNECTING...'}</p></section>
     {games.map(m=><LiveFeed key={m.id} match={m} players={board.players}/>)}
-    {ready && !games.length && <section className="panel empty"><Ball/><h2>No games in progress</h2><p>When someone starts a game on their phone, the live feed will appear here automatically.</p><a className="btn ink" href="/play">Start a game</a></section>}
+    {ready && !games.length && <section className="panel empty watch-empty"><Ball/><h2>No games in progress</h2><p>When someone starts a game on their phone, the live feed will appear here automatically.</p><a className="btn primary" href="/play">Start a game</a></section>}
   </>;
 }
 
@@ -97,9 +100,9 @@ function App() {
     setBoard(b=>({...b,players:[...b.players.filter(x=>x.id!==p.id),p]}));
   }
   return <><header className="top"><div className="top-inner"><a className="brand" href="/"><Ball/> Rackroom</a>
-    <nav aria-label="Main navigation"><a href="/" aria-current={!phone&&!watch?'page':undefined}>Scoreboard</a><a href="/watch" aria-current={watch?'page':undefined}>Watch games{liveCount>0?` (${liveCount})`:''}</a><a href="/play" aria-current={phone?'page':undefined}>Controller</a></nav></div></header>
+    <nav aria-label="Main navigation"><a href="/" aria-current={!phone&&!watch?'page':undefined}>Scoreboard</a><a href="/watch" aria-current={watch?'page':undefined}>Watch games{liveCount>0?` (${liveCount})`:''}</a><a href="/play" aria-current={phone?'page':undefined}>Controller</a></nav>
+    <span className={ready && !error ? 'connection online' : 'connection'}>{error ? 'Reconnecting' : ready ? 'Board online' : 'Connecting'}</span></div></header>
     <main className={phone?'shell phone':'shell'}>{error && <p className="alert" role="alert">{error}</p>}
-    {phone?<Controller board={board} add={add} refresh={refresh} PlayerEntry={PlayerEntry}/>:watch?<WatchGames board={board} ready={ready}/>:<Dashboard board={board} ready={ready} add={add}/>}</main>
-    <footer><span>RACKROOM</span> &nbsp; / &nbsp; POOL CLUB SCOREKEEPING</footer></>;
+    {phone?<Controller board={board} add={add} refresh={refresh} PlayerEntry={PlayerEntry}/>:watch?<WatchGames board={board} ready={ready}/>:<Dashboard board={board} ready={ready} add={add}/>}</main></>;
 }
 createRoot(document.getElementById('root')).render(<App/>);
