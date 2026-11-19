@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-multipart
+opencv-python
+av
+ultralytics
+openvino
+scipy
+openai
+python-dotenv

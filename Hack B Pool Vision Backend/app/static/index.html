@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pool Table Tracker</title>
+  <style>
+    body { margin: 0; background: #0b0f0c; color: #e6efe8; font: 15px system-ui, sans-serif; }
+    header { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 12px 16px; }
+    h1 { font-size: 18px; margin: 0; }
+    a { color: #9fb3a6; }
+    #status, #detect { color: #9fb3a6; }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #c0392b; margin-right: 6px; }
+    .dot.on { background: #2ecc71; }
+    .ball { color: #ffd700; } .stripe { color: #ff8c00; } .cue { color: #00c8ff; } .player { color: #64dc50; } .spectator { color: #969696; }
+    button, label.file { background: #1f2a22; color: #e6efe8; border: 1px solid #3a4a3e; border-radius: 6px; padding: 6px 12px; font: inherit; cursor: pointer; }
+    button.active { background: #2e7d32; border-color: #2e7d32; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    #hint { color: #ffd54f; }
+    .sandbox-only { display: none; }
+    body.sandbox .sandbox-only { display: inline-block; }
+    main { display: grid; grid-template-columns: 1fr 340px; gap: 16px; padding: 0 16px 16px; }
+    @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+    img { display: block; width: 100%; max-height: calc(100vh - 100px); object-fit: contain; background: #000; border-radius: 8px; }
+    img.marking { cursor: crosshair; }
+    aside { background: #121a14; border: 1px solid #243028; border-radius: 8px; padding: 12px; overflow: auto; max-height: calc(100vh - 100px); }
+    aside h2 { font-size: 15px; margin: 0 0 8px; }
+    aside ul { padding-left: 18px; margin: 6px 0; }
+    aside .muted { color: #8a9a8f; }
+    aside section + section { border-top: 1px solid #243028; margin-top: 12px; padding-top: 12px; }
+    aside input { background: #0b0f0c; color: #e6efe8; border: 1px solid #3a4a3e; border-radius: 6px; padding: 4px 6px; font: inherit; }
+    #looks { padding-left: 22px; } #looks li { margin: 6px 0; } #looks .say { color: #ffd54f; font-style: italic; }
+    #looks .ignored { color: #6f7f74; } #looks .error { color: #e57373; } .tag { color: #9fb3a6; font-size: 13px; }
+    #looks .foul { color: #ff5252; font-weight: 600; }
+    .score { width: 100%; border-collapse: collapse; margin: 6px 0; } .score th, .score td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #243028; vertical-align: top; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Pool Table Tracker</h1>
+    <span id="status"><span class="dot"></span>…</span>
+    <span id="detect"></span>
+    <button id="mark">Mark table</button>
+    <button id="identify" title="At the rack, ready to break: name every ball once">Identify balls</button>
+    <button id="capture">Capture 5 s</button>
+    <label class="file sandbox-only">Upload video <input id="file" type="file" accept="video/*" hidden></label>
+    <button id="restart" class="sandbox-only">Restart video</button>
+    <a id="switch"></a>
+    <span id="hint"></span>
+  </header>
+  <main>
+    <img id="feed" alt="Video feed">
+    <aside>
+      <section>
+        <h2>Game</h2>
+        <div><input id="p1" placeholder="Player 1" size="10"> vs <input id="p2" placeholder="Player 2" size="10"></div>
+        <div style="margin-top:6px"><button id="newgame">New game</button> <button id="endgame">End game</button>
+          <label class="file" title="A photo with every person who will play, labelled by name">Players photo <input id="playersphoto" type="file" accept="image/*" hidden></label></div>
+        <div id="roster" class="tag"></div>
+        <div id="gamestate" class="muted">…</div>
+        <ol id="looks" reversed></ol>
+      </section>
+      <section id="analysis"><h2>Capture analysis</h2><p class="muted">Press "Capture 5 s": it records 5 seconds and the LLM describes what happened.</p></section>
+    </aside>
+  </main>
+  <script>
+    const sandbox = location.pathname.startsWith("/sandbox");
+    const base = sandbox ? "/sandbox" : "/live";
+    document.body.classList.toggle("sandbox", sandbox);
+    const $ = (id) => document.getElementById(id);
+    $("switch").href = sandbox ? "/" : "/sandbox";
+    $("switch").textContent = sandbox ? "live camera →" : "sandbox →";
+    const post = (path, body) => fetch(base + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+    let wasConnected = false, video = { width: 0, height: 0 }, corners = null, lastCapture = "";
+
+    async function poll() {
+      try {
+        const res = await fetch(base + "/status");
+        if (res.status === 404) { $("status").innerHTML = sandbox ? "upload a video of a game from the start" : "no pipeline"; return; }
+        const s = await res.json();
+        // after a restart the old stream is dead: reopen it when frames come back
+        if (s.connected && !wasConnected) $("feed").src = base + "/video?" + Date.now();
+        wasConnected = s.connected;
+        video = s;
+        const clock = (x) => `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, "0")}`;
+        const where = s.duration ? ` · ${clock(s.position)} / ${clock(s.duration)}` : "";
+        $("status").innerHTML = s.connected ? `<span class="dot on"></span>${s.source}${where} · ${s.width}×${s.height} · ${s.fps} fps`
+          : `<span class="dot"></span>${s.ended ? "video ended" : "waiting for " + s.source + "…"}`;
+        const d = s.detector, c = d.counts;
+        $("detect").innerHTML = d.device === "loading" || d.device.startsWith("failed") ? `detector ${d.device}` :
+          `<span class="ball">${c.ball} balls</span> (<span class="ball">${c.solid} solid</span>, <span class="stripe">${c.stripe} stripe</span>) · ` +
+          `<span class="cue">${c.cue} cues</span> · <span class="player">${c.player} players</span> · <span class="spectator">${c.spectator} spectators</span> · ` +
+          `${d.fps} fps` + (d.naming === "running" ? " · naming balls…" : d.naming ? ` · ${d.naming}` : "") +
+          (d.naming_note ? ` · ${d.naming_note}` : "") +
+          (d.table ? "" : " · mark the table");
+        $("capture").disabled = s.capture === "recording" || s.capture === "analysing";
+        $("capture").textContent = s.capture === "recording" ? "Recording…" : s.capture === "analysing" ? "Analysing…" : "Capture 5 s";
+        if (s.capture !== lastCapture && (s.capture === "done" || s.capture === "failed")) showAnalysis();
+        lastCapture = s.capture;
+      } catch { $("status").innerHTML = '<span class="dot"></span>server not running'; wasConnected = false; }
+    }
+
+    const esc = (t) => String(t ?? "").replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[ch]);
+
+    async function pollGame() {
+      const res = await fetch(base + "/game").catch(() => null);
+      if (!res || !res.ok) return;
+      const g = await res.json(), m = g.memory;
+      const row = (p) => {
+        const group = m.groups[p] ? `${m.groups[p]}, ${g.left[m.groups[p] === "solids" ? "solid" : "stripe"]} left` : "open table";
+        return `<tr><td><b>${esc(p)}</b>${m.shooting === p ? " 🎱" : ""}<div class="tag">${esc(m.looks[p] || "")}</div></td>` +
+          `<td>${group}</td><td><b>${g.score[p].length}</b> ${g.score[p].length ? "(" + g.score[p].map(esc).join(", ") + ")" : ""}</td></tr>`;
+      };
+      $("gamestate").innerHTML = (m.winner ? `<p><b>${esc(m.winner)} wins!</b></p>` : "") +
+        `<table class="score"><tr><th>Player</th><th>Group</th><th>Potted</th></tr>${m.players.map(row).join("")}</table>` +
+        `<div class="tag">${!g.active ? "not watching: press New game" : g.busy ? "reading the last look…" : `collecting photo ${g.collecting + 1} of 5`}</div>`;
+      $("roster").textContent = g.roster.length ? `Roster (assets/players): ${g.roster.join(", ")}` : "";
+      if (!m.players.length) $("gamestate").innerHTML = `<p>Recognising who is playing from the roster…</p>` + $("gamestate").innerHTML;
+      $("looks").innerHTML = g.feed.map((f) => f.error ? `<li class="error">${esc(f.error)}</li>`
+        : `<li><span class="tag">${f.t0}-${f.t1} s</span> ${esc(f.summary)}` +
+          (f.potted.length ? `<div class="say">potted: ${f.potted.map((p) => `${esc(p.ball)} (${esc(p.kind)}) → ${esc(p.pocket)}, by ${esc(p.by)}`).join("; ")}</div>` : "") +
+          (f.notes.length ? `<div class="foul">${esc(f.notes.join("; "))}</div>` : "") +
+          `<div class="tag">${f.player_after ? `player in ${f.player_after} s · ` : ""}full read ${f.took} s</div></li>`).join("");
+    }
+    $("endgame").onclick = async () => { await post("/game/end"); pollGame(); };
+    $("playersphoto").onchange = async () => {
+      const f = $("playersphoto").files[0];
+      if (!f) return;
+      $("hint").textContent = "reading the players photo…";
+      const form = new FormData(); form.append("file", f);
+      const r = await fetch("/players-photo", { method: "POST", body: form });
+      const j = r.ok ? await r.json() : null;
+      $("hint").textContent = j ? `roster: ${j.people.join(", ")}; leave the names empty and press New game to recognise who plays` : "couldn't read that photo";
+      pollGame();
+    };
+    $("newgame").onclick = async () => {
+      await post("/game", { players: [$("p1").value, $("p2").value] });
+      $("hint").textContent = "new game: the first player breaks"; setTimeout(() => ($("hint").textContent = ""), 3000);
+      pollGame();
+    };
+
+    async function showAnalysis() {
+      const r = await (await fetch(base + "/capture")).json();
+      if (r.status === "failed") { $("analysis").innerHTML = `<h2>Capture analysis</h2><p>Failed: ${esc(r.error)}</p>`; return; }
+      const a = r.analysis;
+      $("analysis").innerHTML = `<h2>Capture analysis</h2><p>${esc(a.summary)}</p>` +
+        `<b>Events</b><ul>${(a.events || []).map((e) => `<li>${esc(e.t)} s: ${esc(e.what)}</li>`).join("")}</ul>` +
+        `<b>Players</b><ul>${(a.players || []).map((p) => `<li>${esc(p.description)}${p.holding_cue ? " · has cue" : ""}${p.shooting ? " · shooting" : ""}</li>`).join("")}</ul>` +
+        `<b>Potted</b>: ${esc((a.balls_potted || []).join(", ") || "none")}` +
+        `<p class="muted"><b>Detector missed</b>: ${esc(a.detector_misses)}</p><p class="muted">saved in recordings/${esc(r.folder)}</p>`;
+    }
+
+    $("mark").onclick = () => {
+      corners = corners ? null : [];
+      $("mark").classList.toggle("active", !!corners);
+      $("feed").classList.toggle("marking", !!corners);
+      $("hint").textContent = corners ? "click the 4 corners of the playing surface (the cloth)" : "";
+    };
+    $("feed").onclick = async (e) => {
+      if (!corners || !video.width) return;
+      // the image is letterboxed inside the element: map the click back to video pixels
+      const r = $("feed").getBoundingClientRect();
+      const scale = Math.min(r.width / video.width, r.height / video.height);
+      corners.push([Math.round((e.clientX - r.left - (r.width - video.width * scale) / 2) / scale),
+                    Math.round((e.clientY - r.top - (r.height - video.height * scale) / 2) / scale)]);
+      $("hint").textContent = `corner ${corners.length} of 4`;
+      if (corners.length === 4) {
+        await post("/table", { corners });
+        $("hint").textContent = "table saved";
+        $("mark").onclick();
+        setTimeout(() => ($("hint").textContent = ""), 2000);
+      }
+    };
+    $("identify").onclick = async () => { await post("/identify"); $("hint").textContent = "naming every ball on the table…"; setTimeout(() => ($("hint").textContent = ""), 4000); };
+    $("capture").onclick = async () => { await post("/capture"); $("analysis").innerHTML = "<h2>Capture analysis</h2><p class='muted'>recording 5 s, then asking the LLM…</p>"; };
+    $("restart").onclick = () => post("/restart");
+    $("file").onchange = async () => {
+      const f = $("file").files[0];
+      if (!f) return;
+      $("hint").textContent = `uploading ${f.name}…`;
+      const form = new FormData(); form.append("file", f);
+      const r = await fetch("/sandbox/upload", { method: "POST", body: form });
+      $("hint").textContent = r.ok ? "playing from the start: mark the table, then Identify balls at the rack" : "upload failed";
+    };
+
+    poll(); setInterval(poll, 1000);
+    pollGame(); setInterval(pollGame, 1000);
+  </script>
+</body>
+</html>

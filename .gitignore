@@ -1,0 +1,31 @@
+# Secrets
+.env
+.env.*
+
+# Footage of people playing and training data (repo is public)
+recordings/
+datasets/
+
+# Model weights (download or train; too big for git)
+models/
+*.pt
+*.onnx
+*_openvino_model/
+
+# Local files created when running the project
+.venv/
+__pycache__/
+node_modules/
+dist/
+runs/
+.DS_Store
+
+# Per-setup and runtime files
+calibration*.json
+logs/
+mobileclip*.ts
+
+# Labelled photos of the players: real faces and names, and this repo is public.
+# Everyone keeps their own copies locally; only the README is shared.
+Hack B Pool Vision Backend/assets/players/*
+!Hack B Pool Vision Backend/assets/players/README.md
