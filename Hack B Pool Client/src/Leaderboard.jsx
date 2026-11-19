@@ -1,6 +1,8 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLiveFrame } from './LiveFeed';
 import Ball3D from './Ball3D';
+import { CountUp, Form, RankChip, Streak, when } from './shared';
+import { reducedMotion } from './effects';
 import { MOVEMENT_WINDOW, headToHead, highlights, standingsWithInsights } from './insights';
 import './leaderboard.css';
 
@@ -52,27 +54,6 @@ function Clock() {
   return <div className="fb-clock"><strong>{now.toLocaleTimeString(undefined, {hour: 'numeric', minute: '2-digit'})}</strong><small>{now.toLocaleDateString(undefined, {weekday: 'long', day: 'numeric', month: 'long'})}</small></div>;
 }
 
-const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-
-// Animates a number from its previous value to the new one.
-function CountUp({value, duration = 900}) {
-  const [shown, setShown] = useState(value);
-  const from = useRef(value);
-  useEffect(() => {
-    if (typeof value !== 'number' || reducedMotion()) { setShown(value); from.current = value; return; }
-    const start = performance.now(), a = typeof from.current === 'number' ? from.current : 0;
-    let frame;
-    const tick = t => {
-      const k = Math.min(1, (t - start) / duration), eased = 1 - (1 - k) ** 3;
-      setShown(Math.round(a + (value - a) * eased));
-      if (k < 1) frame = requestAnimationFrame(tick); else from.current = value;
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [value, duration]);
-  return <>{shown}</>;
-}
-
 // FLIP: when children with data-flip ids change position, slide them from the old spot.
 function useFlip() {
   const [el, setEl] = useState(null);
@@ -94,7 +75,7 @@ function useFlip() {
 }
 
 // Watches the board for games that just got a winner and announces them.
-function useCelebration(board, ready) {
+export function useCelebration(board, ready) {
   const seen = useRef(null);
   const [celebration, setCelebration] = useState(null);
   useEffect(() => {
@@ -126,25 +107,10 @@ function useRotation(length, ms) {
   return length ? index % length : 0;
 }
 
-const when = iso => new Date(iso).toLocaleString(undefined, {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'});
 
 function WinRate({value}) {
   if (value === null) return <span className="fb-dash">–</span>;
   return <span className="win-rate"><span aria-hidden="true" className="win-track"><span style={{width: `${value}%`}}/></span>{value}%</span>;
-}
-
-function Form({results}) {
-  if (!results.length) return <span className="fb-dash">–</span>;
-  return <span className="fb-form" aria-label={`Last ${results.length}: ${results.join(' ')}`}>
-    {results.map((r, i) => <i key={i} className={r === 'W' ? 'w' : 'l'} style={{'--i': i}}/>)}
-  </span>;
-}
-
-function Streak({streak}) {
-  if (!streak || streak.n < 2 || (streak.type === 'L' && streak.n < 3)) return null;
-  return <span className={`fb-streak ${streak.type === 'W' ? 'hot' : 'cold'}`} title={`${streak.n} ${streak.type === 'W' ? 'wins' : 'losses'} in a row`}>
-    {streak.type}{streak.n}
-  </span>;
 }
 
 function Movement({value}) {
@@ -156,7 +122,7 @@ function Movement({value}) {
 function Podium({player, place, flash}) {
   if (!player) return <div className={`fb-podium-card place-${place} vacant`}><span className="rank">{place}</span><p>Open spot</p></div>;
   return <div className={`fb-podium-card place-${place}${flash ? ' flash' : ''}`}>
-    <span className={place === 1 ? 'rank first' : 'rank'}>{place}</span>
+    <RankChip rank={place}/>
     <Ball3D n={place} size={place === 1 ? 70 : 52} spin={place === 1 ? 3.6 : 4.4} float={place === 1}/>
     <h3>{player.name}</h3>
     <p className="fb-record"><b><CountUp value={player.wins}/></b> W <span>·</span> <b><CountUp value={player.losses}/></b> L</p>
@@ -185,7 +151,7 @@ function Standings({board, ranked, ready, mobile, flashId}) {
       <div className="fb-rows-wrap" ref={list}>
         <ol className="fb-rows" ref={flip}>
           {rest.map((p, i) => <li key={p.id} data-flip={p.id} className={`fb-row${p.id === flashId ? ' flash' : ''}`} style={{'--i': i}}>
-            <span className="fb-rank-cell"><span className="rank">{i + 4}</span><Movement value={p.movement}/></span>
+            <span className="fb-rank-cell"><RankChip rank={i + 4}/><Movement value={p.movement}/></span>
             <span className="fb-name"><strong>{p.name}</strong><Streak streak={p.streak}/></span>
             <Form results={p.form}/>
             <span>{p.wins}</span>
@@ -285,7 +251,7 @@ function Stats({board, ready}) {
   </div>;
 }
 
-function Celebration({celebration, name}) {
+export function Celebration({celebration, name}) {
   if (!celebration) return null;
   const {match} = celebration;
   const loser = match.winner === match.a ? match.b : match.a;
@@ -322,7 +288,7 @@ export default function Leaderboard({board, ready, error}) {
     <div className={`fb-stage${fit.mobile ? ' mobile' : ''}`}
       style={{width: fit.width, height: fit.height, transform: `scale(${fit.scale})`}}>
       <header className="fb-top">
-        <a className="brand" href="/" title="Back to the scoreboard"><Ball3D n={8} size={34} spin={6}/> Rackroom</a>
+        <a className="brand" href="/" title="Back to the scoreboard"><Ball3D n={8} size={34} spin={6}/> <span className="wordmark">Rackroom</span></a>
         {!fit.mobile && <span className={ready && !error ? 'connection online' : 'connection'}>{error ? 'Reconnecting' : ready ? 'Board online · updates live' : 'Connecting'}</span>}
         <div className="fb-tools">
           <Clock/>

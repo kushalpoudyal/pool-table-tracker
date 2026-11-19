@@ -111,7 +111,7 @@ export default function Controller({board, add, refresh, PlayerEntry}) {
   const finished=board.matches.find(m=>m.id===gameId);
   const step=['select','permission'].includes(stage)?0:stage==='done'?2:1;
   return <><div className="phone-title">
-    <h1>Table remote<span>.</span></h1><p>Pick the players. Start the game. Stream from your phone.</p></div>
+    <p className="kicker ornament">Courtside controls</p><h1>Table <span className="gold-text">remote</span><span className="dot">.</span></h1><p>Pick the players. Start the game. Stream from your phone.</p></div>
     <ol className="steps">{['Matchup','Live','Result'].map((s,i)=><li className={step===i?'current':step>i?'done':''} aria-current={step===i?'step':undefined} key={s}><span aria-hidden="true">{step>i?'✓':i+1}</span>{s}</li>)}</ol>
     {error && <p className="alert" role="alert">{error}</p>}
     <section className="panel remote">

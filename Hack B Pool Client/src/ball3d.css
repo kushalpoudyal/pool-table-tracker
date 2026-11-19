@@ -2,7 +2,7 @@
    Animations are switched off by the prefers-reduced-motion rule in styles.css. */
 .b3d {
   --s: 40px;
-  --c: #8f6af0;
+  --c: #e8b923;
   position: relative;
   display: inline-block;
   flex: none;
@@ -14,7 +14,7 @@
 }
 .b3d.float { animation: b3d-in 1s cubic-bezier(.2, .8, .2, 1) both, b3d-float 4s 1s ease-in-out infinite; }
 .b3d-surface { position: absolute; inset: 0; overflow: hidden; border-radius: 50%; background: var(--c); }
-.b3d.stripe .b3d-surface { background: #f1ecf8; }
+.b3d.stripe .b3d-surface { background: #f6efdf; }
 .b3d-stripe { position: absolute; inset: 23% -5%; background: var(--c); }
 .b3d-decal {
   position: absolute;
@@ -25,10 +25,10 @@
   width: 52%;
   height: 52%;
   border-radius: 50%;
-  background: #fbf8ff;
+  background: #f6efdf;
   animation: b3d-roll var(--spin) var(--delay) linear infinite;
 }
-.b3d-decal i { color: #1d1530; font: 800 calc(var(--s) * .25)/1 Inter, system-ui, sans-serif; font-style: normal; letter-spacing: -.04em; }
+.b3d-decal i { color: #15101a; font: 800 calc(var(--s) * .25)/1 Inter, system-ui, sans-serif; font-style: normal; letter-spacing: -.04em; }
 .b3d-shade {
   position: absolute;
   inset: 0;

@@ -1,10 +1,10 @@
 import React from 'react';
 import './ball3d.css';
 
-// Pool-ball colours tuned to the Rackroom palette. 9–15 are stripes of 1–7.
+// Classic tournament colours, slightly deepened. 9–15 are stripes of 1–7.
 const COLORS = {
-  1: '#8f6af0', 2: '#9aa7c4', 3: '#d0864a', 4: '#f0a352',
-  5: '#3fc79d', 6: '#e2566f', 7: '#6b4bc7', 8: '#1d1928',
+  1: '#e8b923', 2: '#2552c4', 3: '#cf352c', 4: '#5c2d91',
+  5: '#ec6d1f', 6: '#1c8050', 7: '#86222f', 8: '#141116',
 };
 
 // A CSS "3D" pool ball: the number decal travels across the sphere (squashing near the
