@@ -126,7 +126,7 @@ function WatchGames({board, ready}) {
     <h1>Watch <span className="gold-text">games</span><span className="dot">.</span></h1><p>Choose a game below. Anyone on the club network can watch, no sign-in needed.</p>
     <p className="kicker">{ready?`${games.length} GAME${games.length===1?'':'S'} IN PROGRESS`:'CONNECTING...'}</p></section>
     <RemoteFeed/>
-    {games.map(m=><LiveFeed key={m.id} match={m} players={board.players}/>)}
+    {games.filter(m=>!m.external).map(m=><LiveFeed key={m.id} match={m} players={board.players}/>)}
     {ready && !games.length && <section className="panel empty watch-empty" data-reveal><Ball3D n={8} size={56} float/><h2>No scored games in progress</h2><p>Start a game on your phone to track the matchup. External camera feeds are shown separately above when configured.</p><a className="btn primary" href="/play">Start a game</a></section>}
   </>;
 }

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api, post } from './api';
+import { Score } from './RemoteFeed';
 
 function closeMatch(game, outcome) {
   return api(`matches/${game.id}/close?outcome=${outcome}`,{method:'POST',headers:{'X-Recorder-Key':game.token}});
@@ -10,6 +11,9 @@ export default function Controller({board, add, refresh, PlayerEntry}) {
   const [stage,setStage]=useState('select'), [error,setError]=useState('');
   const [seconds,setSeconds]=useState(0), [gameId,setGameId]=useState(null);
   const [liveError,setLiveError]=useState('');
+  // external: the stream server's table camera is configured. It films and scores the game, so this page
+  // skips the browser camera: it starts the game there, shows its feed and score, and records its winner.
+  const [external,setExternal]=useState(false), [score,setScore]=useState(null);
   const canRecord=window.isSecureContext && !!navigator.mediaDevices?.getUserMedia && !!window.MediaRecorder;
   const liveCameraUrl=import.meta.env.VITE_LIVE_CAMERA_URL;
   const stream=useRef(null), video=useRef(null), recorder=useRef(null), current=useRef(null);
@@ -32,8 +36,19 @@ export default function Controller({board, add, refresh, PlayerEntry}) {
     return ()=>window.removeEventListener('beforeunload',guard);
   },[active]);
   useEffect(()=>()=>stopCamera(),[]);
+  useEffect(()=>{api('stream-server/status').then(s=>setExternal(!!s.configured)).catch(()=>{});},[]);
   useEffect(()=>{
-    if(stage!=='record') return;
+    if(stage!=='record' || !external) return;
+    let disposed=false, timer;
+    async function poll() {
+      try { const g=await api('stream-server/game'); if(!disposed) setScore(g); } catch { /* shown on the next poll */ }
+      finally {if(!disposed) timer=setTimeout(poll,2000);}
+    }
+    poll();
+    return ()=>{disposed=true;clearTimeout(timer);};
+  },[stage,external]);
+  useEffect(()=>{
+    if(stage!=='record' || external) return;
     let disposed=false, timer;
     const abort=new AbortController();
     const canvas=document.createElement('canvas');
@@ -57,9 +72,25 @@ export default function Controller({board, add, refresh, PlayerEntry}) {
     }
     setLiveError(''); transmit();
     return ()=>{disposed=true;clearTimeout(timer);abort.abort();};
-  },[stage,gameId]);
+  },[stage,gameId,external]);
 
+  async function startExternal() {
+    setStage('starting'); setError(''); setScore(null);
+    try {
+      const game=await post('stream-server/game',{a:Number(a),b:Number(b)});
+      current.current={...game,external:true}; setGameId(game.id); setStage('record'); refresh();
+    } catch(e) {setError(e.message);setStage('select');}
+  }
+  async function stopExternal() {
+    setStage('saving');
+    try {
+      const g=current.current;
+      await api(`stream-server/game/${g.id}/end`,{method:'POST',headers:{'X-Recorder-Key':g.token}});
+      refresh(); setError(''); setStage('done');
+    } catch(e) {setError(`Could not record the game: ${e.message}`);setStage('retry');}
+  }
   async function start() {
+    if(external) return startExternal();
     setStage('permission'); setError('');
     let game;
     try {
@@ -119,20 +150,21 @@ export default function Controller({board, add, refresh, PlayerEntry}) {
       {[[a,A,b,'Player A'],[b,B,a,'Player B']].map(([v,set,other,label])=><label key={label}>{label}<select value={v} disabled={stage==='permission'} onChange={e=>set(e.target.value)}><option value="">Select a player</option>{board.players.map(p=><option key={p.id} value={p.id} disabled={String(p.id)===other}>{p.name}</option>)}</select></label>)}
       <details><summary>New to the roster? Add a player</summary><PlayerEntry onAdded={add}/></details>
       <p>Point your phone at the table before starting. Both players must agree to be recorded. Starting turns on the camera and makes the game visible to everyone in Watch games. No audio is sent.</p>
-      <button className="btn primary wide" disabled={!a || !b || a===b || stage==='permission'} onClick={start}>{stage==='permission'?'Opening camera...':'Start game & stream'}</button>
-      {!canRecord && <><p role="status">Live camera access is blocked or unsupported at this address. The game will start only after camera access succeeds.</p>
+      <button className="btn primary wide" disabled={!a || !b || a===b || stage==='permission'} onClick={start}>{stage==='permission'?'Opening camera...':external?'Start game':'Start game & stream'}</button>
+      {!canRecord && !external && <><p role="status">Live camera access is blocked or unsupported at this address. The game will start only after camera access succeeds.</p>
         {liveCameraUrl && !window.isSecureContext && <a className="btn primary wide" href={liveCameraUrl}>Open live camera</a>}</>}
     </>:stage==='done'?<><p className="kicker">GAME {gameId} &nbsp; / &nbsp; CAPTURE COMPLETE</p>
-      <h2>{finished?.winner?`${name(finished.winner)} won`:'Awaiting analysis'}</h2><p>{finished?.winner?'The standings have been updated.':'The server has the video. The winner will appear here and on the scoreboard when the analyzer returns a result.'}</p>
+      <h2>{finished?.winner?`${name(finished.winner)} won`:current.current?.external?'No winner recorded':'Awaiting analysis'}</h2><p>{finished?.winner?'The standings have been updated.':current.current?.external?'The table camera did not see the game finish, so it was not counted.':'The server has the video. The winner will appear here and on the scoreboard when the analyzer returns a result.'}</p>
       <a className="btn primary wide" href="/">View scoreboard</a><button className="text-btn" onClick={()=>{A('');B('');setStage('select');}}>Set up another game</button>
     </>:<><p className="kicker">{stage==='record'?'LIVE STREAMING':'MATCH CAPTURE'}</p><h2>{name(a)} <em>vs</em> {name(b)}</h2>
-      {['record','starting'].includes(stage)&&<div className="camera"><video ref={video} playsInline muted autoPlay/><div className="camera-guides" aria-hidden="true"><span/><span/><span/><span/></div>{stage==='record'&&<span className="rec">LIVE {Math.floor(seconds/60)}:{String(seconds%60).padStart(2,'0')}</span>}</div>}
-      {stage==='record'&&<><p>Game started. Sending video to the local Python server. Anyone can watch this game in the Watch games tab. Keep this page open and your phone unlocked.</p>
+      {['record','starting'].includes(stage)&&<div className="camera">{external?<img src="/api/stream-server/video" alt="Live table camera"/>:<video ref={video} playsInline muted autoPlay/>}<div className="camera-guides" aria-hidden="true"><span/><span/><span/><span/></div>{stage==='record'&&<span className="rec">LIVE {Math.floor(seconds/60)}:{String(seconds%60).padStart(2,'0')}</span>}</div>}
+      {stage==='record'&&<><p>{external?'Game started. The table camera keeps the score. Anyone can watch this game in the Watch games tab.':'Game started. Sending video to the local Python server. Anyone can watch this game in the Watch games tab. Keep this page open and your phone unlocked.'}</p>
+        {external&&<Score game={score}/>}
         <p>Viewer link: <a href={`/watch#game-${gameId}`} target="_blank" rel="noreferrer">Watch game {gameId}</a></p>
         {liveError&&<p className="alert" role="alert">{liveError}</p>}
-        <button className="btn stop wide" onClick={()=>{setStage('saving');recorder.current.stop();}}>■ &nbsp; Stop game &amp; submit</button></>}
+        <button className="btn stop wide" onClick={()=>{if(external) return stopExternal();setStage('saving');recorder.current.stop();}}>■ &nbsp; Stop game &amp; submit</button></>}
       {stage==='starting'&&<p role="status">Starting match...</p>}{stage==='saving'&&<p role="status">Finishing upload. Keep this page open.</p>}
-      {stage==='retry'&&<button className="btn primary wide" onClick={async()=>{setStage('saving');try{const g=current.current;await closeMatch(g,g.outcome);refresh();setError(g.outcome==='discard'?'Recording interrupted. Start a new game.':'');setStage(g.outcome==='discard'?'select':'done');}catch(e){setError(e.message);setStage('retry');}}}>Retry submission</button>}
+      {stage==='retry'&&<button className="btn primary wide" onClick={async()=>{if(current.current?.external) return stopExternal();setStage('saving');try{const g=current.current;await closeMatch(g,g.outcome);refresh();setError(g.outcome==='discard'?'Recording interrupted. Start a new game.':'');setStage(g.outcome==='discard'?'select':'done');}catch(e){setError(e.message);setStage('retry');}}}>Retry submission</button>}
     </>}
     </section></>;
 }

@@ -1,3 +1,4 @@
+import json
 import unittest
 import os
 from pathlib import Path
@@ -39,6 +40,11 @@ class RemoteStreamTests(unittest.TestCase):
                 return httpx.Response(200, json={
                     "connected": True, "source": "phone", "width": 640, "height": 360, "fps": 5,
                 })
+            if request.url.path == "/watch":
+                return httpx.Response(200, json={
+                    "active": True, "match": 7, "winner": None, "events": [],
+                    "players": [{"name": "Ana", "group": "solids", "at_table": True, "potted": ["3"], "left": 6}],
+                })
             return httpx.Response(200, stream=Frames(), headers={
                 "Content-Type": "multipart/x-mixed-replace; boundary=frame",
             })
@@ -49,6 +55,9 @@ class RemoteStreamTests(unittest.TestCase):
             side_effect=lambda **kwargs: client_type(transport=httpx.MockTransport(respond), **kwargs),
         ), TestClient(app) as client:
             self.assertTrue(client.get("/api/stream-server/status").json()["connected"])
+            game = client.get("/api/stream-server/game").json()
+            self.assertTrue(game["configured"])
+            self.assertEqual(game["players"][0]["potted"], ["3"])
             response = client.get("/api/stream-server/video")
             self.assertEqual(response.content, body)
             self.assertEqual(response.headers["content-type"], "multipart/x-mixed-replace; boundary=frame")
@@ -64,10 +73,68 @@ class RemoteStreamTests(unittest.TestCase):
             ),
         ), TestClient(app) as client:
             self.assertEqual(client.get("/api/stream-server/status").status_code, 502)
+            self.assertEqual(client.get("/api/stream-server/game").status_code, 502)
             self.assertEqual(client.get("/api/stream-server/video").status_code, 502)
         with patch.dict(os.environ, POOL_STREAM_SERVER=""), TestClient(app) as client:
             self.assertEqual(client.get("/api/stream-server/status").json(), {"configured": False})
+            self.assertEqual(client.get("/api/stream-server/game").json(), {"configured": False})
             self.assertEqual(client.get("/api/stream-server/video").status_code, 503)
+
+
+class StreamServerGameTests(unittest.TestCase):
+    """A game scored by the external camera: start hands it the names, end records its winner."""
+
+    def setUp(self):
+        folder = TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        env = patch.dict(os.environ, POOL_DB=str(Path(folder.name) / "test.sqlite3"),
+                         POOL_STREAM_SERVER="http://camera.test")
+        env.start()
+        self.addCleanup(env.stop)
+        self.sent, self.final = [], {}
+
+        def respond(request):
+            if request.url.path == "/watch":
+                return httpx.Response(200, json=self.final)
+            self.sent.append((request.method, request.url.path, request.content and json.loads(request.content)))
+            return httpx.Response(200, json={"ok": True})
+
+        self.client_type = client_type = httpx.Client
+        mock = patch("remote_stream.httpx.Client",
+                     side_effect=lambda **kwargs: client_type(transport=httpx.MockTransport(respond), **kwargs))
+        mock.start()
+        self.addCleanup(mock.stop)
+        self.client = TestClient(app)
+        self.addCleanup(self.client.close)
+        self.a, self.b = [self.client.post("/api/players", json={"name": n}).json()["id"] for n in ("Ada", "Sam")]
+
+    def test_game_is_recorded_with_the_stream_servers_winner(self):
+        game = self.client.post("/api/stream-server/game", json={"a": self.a, "b": self.b}).json()
+        self.assertEqual(self.sent, [("POST", "/game", {"players": ["Ada", "Sam"], "match": game["id"]})])
+        self.final = {"match": game["id"], "winner": "sam", "players": [{"name": "Sam", "potted": ["9", "8"]}]}
+        url = f"/api/stream-server/game/{game['id']}/end"
+        self.assertEqual(self.client.post(url, headers={"X-Recorder-Key": "wrong"}).status_code, 403)
+        ended = self.client.post(url, headers={"X-Recorder-Key": game["token"]}).json()
+        self.assertEqual((ended["status"], ended["winner"]), ("complete", self.b))
+        self.assertEqual(self.sent[-1][:2], ("POST", "/game/end"))
+        match = self.client.get("/api/board").json()["matches"][0]
+        self.assertEqual((match["status"], match["winner"], match["external"]), ("complete", self.b, 1))
+        self.assertEqual(match["details"]["players"][0]["potted"], ["9", "8"])
+        self.assertEqual(self.client.post(url, headers={"X-Recorder-Key": game["token"]}).status_code, 409)
+
+    def test_game_without_a_winner_is_not_counted(self):
+        game = self.client.post("/api/stream-server/game", json={"a": self.a, "b": self.b}).json()
+        self.final = {"match": game["id"], "winner": None, "players": []}
+        ended = self.client.post(f"/api/stream-server/game/{game['id']}/end", headers={"X-Recorder-Key": game["token"]})
+        self.assertEqual(ended.json()["status"], "interrupted")
+        self.assertIsNone(self.client.get("/api/board").json()["matches"][0]["winner"])
+
+    def test_bad_matchup_and_unreachable_camera(self):
+        self.assertEqual(self.client.post("/api/stream-server/game", json={"a": self.a, "b": self.a}).status_code, 422)
+        with patch("remote_stream.httpx.Client", side_effect=lambda **kwargs: self.client_type(
+                transport=httpx.MockTransport(lambda request: httpx.Response(503)), **kwargs)):
+            self.assertEqual(self.client.post("/api/stream-server/game", json={"a": self.a, "b": self.b}).status_code, 502)
+        self.assertEqual(self.client.get("/api/board").json()["matches"][0]["status"], "interrupted")
 
 
 class TrackerTests(unittest.TestCase):
