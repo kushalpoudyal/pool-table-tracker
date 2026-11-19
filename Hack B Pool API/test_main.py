@@ -62,6 +62,42 @@ class TrackerTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/players", json={"name":"  ADA "}).status_code, 409)
         self.assertEqual(self.client.post("/api/matches", json={"a":self.a,"b":self.a,"mime":"video/webm"}).status_code, 422)
 
+    def test_saved_quicktime_video(self):
+        created = self.client.post("/api/matches", json={
+            "a": self.a, "b": self.b, "mime": "video/quicktime",
+        })
+        self.assertEqual(created.status_code, 201)
+        game = created.json()
+        url = f"/api/matches/{game['id']}"
+        headers = {"X-Recorder-Key": game["token"]}
+        parts = [b"a" * (2 * 1024 * 1024), b"final segment"]
+        for i, part in enumerate(parts):
+            self.assertEqual(self.client.put(f"{url}/chunks/{i}", content=part, headers=headers).status_code, 200)
+        self.assertEqual(self.client.post(url + "/close?outcome=finish", headers=headers).json()["status"], "pending")
+        res = self.client.get(url + "/video", headers={"X-Analyzer-Key": "unit-test"})
+        self.assertEqual(res.headers["content-type"], "video/quicktime")
+        self.assertEqual(res.content, b"".join(parts))
+
+    def test_live_feed_lifecycle(self):
+        game = self.client.post("/api/matches", json={
+            "a": self.a, "b": self.b, "mime": "video/webm",
+        }).json()
+        url = f"/api/matches/{game['id']}"
+        headers = {"X-Recorder-Key": game["token"]}
+        frame = b"\xff\xd8test-frame\xff\xd9"
+        self.assertEqual(self.client.get(url + "/frame").status_code, 204)
+        self.assertEqual(self.client.put(url + "/frame", content=frame, headers={"X-Recorder-Key":"wrong"}).status_code, 403)
+        self.assertEqual(self.client.put(url + "/frame", content=b"bad", headers=headers).status_code, 422)
+        self.assertEqual(self.client.put(url + "/frame", content=frame, headers=headers).status_code, 200)
+        self.assertEqual(self.client.get(url + "/frame").content, frame)
+        self.assertEqual(self.client.get("/api/board").json()["matches"][0]["live"], 1)
+        with patch("tracker.time.time", return_value=99999999999):
+            self.assertEqual(self.client.get(url + "/frame").status_code, 204)
+            self.assertEqual(self.client.get("/api/board").json()["matches"][0]["live"], 0)
+        self.client.post(url + "/close?outcome=discard", headers=headers)
+        self.assertEqual(self.client.get(url + "/frame").status_code, 204)
+        self.assertEqual(self.client.put(url + "/frame", content=frame, headers=headers).status_code, 409)
+
 
 if __name__ == "__main__":
     unittest.main()

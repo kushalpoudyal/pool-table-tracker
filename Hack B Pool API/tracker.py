@@ -1,12 +1,13 @@
 import os
 import secrets
 import sqlite3
+import time
 from contextlib import contextmanager, closing
 from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Header, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api")
@@ -18,6 +19,8 @@ CREATE TABLE IF NOT EXISTS matches(
  started TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')));
 CREATE TABLE IF NOT EXISTS chunks(match_id INTEGER, seq INTEGER, data BLOB NOT NULL,
  PRIMARY KEY(match_id,seq));
+CREATE TABLE IF NOT EXISTS live_frames(
+ match_id INTEGER PRIMARY KEY, data BLOB NOT NULL, updated REAL NOT NULL);
 """
 
 
@@ -38,7 +41,7 @@ class Player(BaseModel):
 class NewMatch(BaseModel):
     a: int
     b: int
-    mime: Literal["video/webm", "video/mp4"]
+    mime: Literal["video/webm", "video/mp4", "video/quicktime"]
 
 
 class Verdict(BaseModel):
@@ -50,7 +53,12 @@ def board():
     with db() as c:
         c.execute("BEGIN")
         players = c.execute("SELECT id,name FROM players ORDER BY name COLLATE NOCASE").fetchall()
-        games = c.execute("SELECT id,a,b,status,winner,started FROM matches ORDER BY id DESC").fetchall()
+        games = c.execute("""
+            SELECT m.id,a,b,status,winner,started,
+                   coalesce(f.updated > ?,0) AND status='recording' AS live
+            FROM matches m LEFT JOIN live_frames f ON f.match_id=m.id
+            ORDER BY m.id DESC
+        """, (time.time() - 5,)).fetchall()
     return {"players": list(map(dict, players)), "matches": list(map(dict, games))}
 
 
@@ -104,6 +112,38 @@ async def upload(match_id: int, seq: int, request: Request, x_recorder_key: str 
     return {"received": seq}
 
 
+@router.put("/matches/{match_id}/frame")
+async def send_frame(match_id: int, request: Request, x_recorder_key: str = Header()):
+    data = bytearray()
+    async for part in request.stream():
+        if len(data) + len(part) > 512 * 1024:
+            raise HTTPException(413, "Live preview frame is too large.")
+        data.extend(part)
+    if not data.startswith(b"\xff\xd8") or not data.endswith(b"\xff\xd9"):
+        raise HTTPException(422, "Live preview requires a JPEG frame.")
+    with db() as c:
+        if recorder_status(c, match_id, x_recorder_key) != "recording":
+            raise HTTPException(409, "This recording is already closed.")
+        c.execute(
+            "INSERT OR REPLACE INTO live_frames VALUES(?,?,?)",
+            (match_id, data, time.time()),
+        )
+    return {"received": True}
+
+
+@router.get("/matches/{match_id}/frame")
+def live_frame(match_id: int):
+    with db() as c:
+        row = c.execute("""
+            SELECT f.data FROM live_frames f JOIN matches m ON m.id=f.match_id
+            WHERE m.id=? AND m.status='recording' AND f.updated>?
+        """, (match_id, time.time() - 5)).fetchone()
+    headers = {"Cache-Control": "no-store"}
+    if not row:
+        return Response(status_code=204, headers=headers)
+    return Response(content=bytes(row["data"]), media_type="image/jpeg", headers=headers)
+
+
 @router.post("/matches/{match_id}/close")
 def close(match_id: int, outcome: Literal["finish", "discard"], x_recorder_key: str = Header()):
     with db() as c:
@@ -122,6 +162,7 @@ def close(match_id: int, outcome: Literal["finish", "discard"], x_recorder_key: 
                 raise HTTPException(409, "No video received.")
             status = "pending"
         c.execute("UPDATE matches SET status=? WHERE id=?", (status, match_id))
+        c.execute("DELETE FROM live_frames WHERE match_id=?", (match_id,))
     return {"status": status}
 
 

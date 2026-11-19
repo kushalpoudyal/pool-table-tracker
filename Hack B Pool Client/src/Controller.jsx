@@ -9,10 +9,13 @@ export default function Controller({board, add, refresh, PlayerEntry}) {
   const [a,A]=useState(''), [b,B]=useState('');
   const [stage,setStage]=useState('select'), [error,setError]=useState('');
   const [seconds,setSeconds]=useState(0), [gameId,setGameId]=useState(null);
+  const [liveError,setLiveError]=useState('');
+  const canRecord=window.isSecureContext && !!navigator.mediaDevices?.getUserMedia && !!window.MediaRecorder;
+  const liveCameraUrl=import.meta.env.VITE_LIVE_CAMERA_URL;
   const stream=useRef(null), video=useRef(null), recorder=useRef(null), current=useRef(null);
   const stopCamera=()=>stream.current?.getTracks().forEach(t=>t.stop());
   const name=id=>board.players.find(p=>p.id===Number(id))?.name;
-  const active=['starting','record','saving'].includes(stage);
+  const active=['permission','starting','record','saving'].includes(stage);
   useEffect(()=>{
     if (video.current) video.current.srcObject=stream.current;
   },[stage]);
@@ -29,22 +32,45 @@ export default function Controller({board, add, refresh, PlayerEntry}) {
     return ()=>window.removeEventListener('beforeunload',guard);
   },[active]);
   useEffect(()=>()=>stopCamera(),[]);
+  useEffect(()=>{
+    if(stage!=='record') return;
+    let disposed=false, timer;
+    const abort=new AbortController();
+    const canvas=document.createElement('canvas');
+    const context=canvas.getContext('2d');
+    async function transmit() {
+      try {
+        const source=video.current;
+        if(!context) throw new Error('Live preview is unavailable in this browser.');
+        if(source?.videoWidth && source.readyState>=2) {
+          canvas.width=Math.min(640,source.videoWidth);
+          canvas.height=Math.round(source.videoHeight*canvas.width/source.videoWidth);
+          context.drawImage(source,0,0,canvas.width,canvas.height);
+          const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.65));
+          if(!blob) throw new Error('Could not encode the live preview.');
+          if(disposed) return;
+          await api(`matches/${gameId}/frame`,{method:'PUT',body:blob,headers:{'X-Recorder-Key':current.current.token},signal:abort.signal});
+          setLiveError('');
+        }
+      } catch(e) {if(!disposed) setLiveError(`Leaderboard preview interrupted: ${e.message} Retrying...`);}
+      finally {if(!disposed) timer=setTimeout(transmit,250);}
+    }
+    setLiveError(''); transmit();
+    return ()=>{disposed=true;clearTimeout(timer);abort.abort();};
+  },[stage,gameId]);
 
-  async function preview() {
-    setError(''); setStage('permission');
-    try {
-      if(!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder)
-        throw new Error('Recording needs HTTPS (or localhost) and a browser with camera recording support.');
-      stream.current=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
-      setStage('preview');
-    } catch(e) {setError(`Camera not ready: ${e.message}`);setStage('select');}
-  }
   async function start() {
-    setStage('starting'); setError('');
+    setStage('permission'); setError('');
     let game;
     try {
+      if(!canRecord)
+        throw new Error(window.isSecureContext
+          ? 'This browser does not support live camera recording. Use a current Safari or Chrome browser.'
+          : 'This HTTP page can reach the server, but the browser blocks live camera access here. Open the live-camera address below to stream.');
       const mime=['video/webm','video/mp4'].find(t=>MediaRecorder.isTypeSupported(t));
       if(!mime) throw new Error('This browser cannot record MP4 or WebM.');
+      stream.current=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
+      setStage('starting');
       const rec=new MediaRecorder(stream.current,{mimeType:mime,videoBitsPerSecond:1500000});
       game=await post('matches',{a:Number(a),b:Number(b),mime});
       current.current=game; setGameId(game.id);
@@ -85,22 +111,26 @@ export default function Controller({board, add, refresh, PlayerEntry}) {
   const finished=board.matches.find(m=>m.id===gameId);
   const step=['select','permission'].includes(stage)?0:stage==='done'?2:1;
   return <><div className="phone-title"><p className="kicker">TABLE 01 &nbsp; / &nbsp; PHONE CONTROLLER</p>
-    <h1>Table remote<span>.</span></h1><p>Set the matchup, frame the table, and record the game.</p></div>
-    <ol className="steps">{['Matchup','Camera','Result'].map((s,i)=><li className={step===i?'current':''} aria-current={step===i?'step':undefined} key={s}>0{i+1} &nbsp; {s}</li>)}</ol>
+    <h1>Table remote<span>.</span></h1><p>Pick the players. Start the game. Stream from your phone.</p></div>
+    <ol className="steps">{['Matchup','Live','Result'].map((s,i)=><li className={step===i?'current':''} aria-current={step===i?'step':undefined} key={s}>0{i+1} &nbsp; {s}</li>)}</ol>
     {error && <p className="alert" role="alert">{error}</p>}
     <section className="panel remote">
     {step===0?<><p className="kicker">MATCH SETUP</p><h2>Who's playing?</h2><p>Choose two different players from the club roster.</p>
       {[[a,A,b,'Player A'],[b,B,a,'Player B']].map(([v,set,other,label])=><label key={label}>{label}<select value={v} disabled={stage==='permission'} onChange={e=>set(e.target.value)}><option value="">Select a player</option>{board.players.map(p=><option key={p.id} value={p.id} disabled={String(p.id)===other}>{p.name}</option>)}</select></label>)}
       <details><summary>New to the roster? Add a player</summary><PlayerEntry onAdded={add}/></details>
-      <button className="btn ink wide" disabled={!a || !b || a===b || stage==='permission'} onClick={preview}>{stage==='permission'?'Opening camera...':'Continue to camera →'}</button>
+      <p>Point your phone at the table before starting. Both players must agree to be recorded. Starting turns on the camera and makes the game visible to everyone in Watch games. No audio is sent.</p>
+      <button className="btn ink wide" disabled={!a || !b || a===b || stage==='permission'} onClick={start}>{stage==='permission'?'Opening camera...':'Start game & stream'}</button>
+      {!canRecord && <><p role="status">Live camera access is blocked or unsupported at this address. The game will start only after camera access succeeds.</p>
+        {liveCameraUrl && !window.isSecureContext && <a className="btn ink wide" href={liveCameraUrl}>Open live camera</a>}</>}
     </>:stage==='done'?<><p className="kicker">GAME {gameId} &nbsp; / &nbsp; CAPTURE COMPLETE</p>
       <h2>{finished?.winner?`${name(finished.winner)} won`:'Awaiting analysis'}</h2><p>{finished?.winner?'The standings have been updated.':'The server has the video. The winner will appear here and on the scoreboard when the analyzer returns a result.'}</p>
       <a className="btn ink wide" href="/">View scoreboard</a><button className="text-btn" onClick={()=>{A('');B('');setStage('select');}}>Set up another game</button>
-    </>:<><p className="kicker">{stage==='record'?'RECORDING':stage==='preview'?'CAMERA CHECK':'MATCH CAPTURE'}</p><h2>{name(a)} <em>vs</em> {name(b)}</h2>
-      {['preview','record','starting'].includes(stage)&&<div className="camera"><video ref={video} playsInline muted autoPlay/>{stage==='record'&&<span className="rec">● REC &nbsp; {Math.floor(seconds/60)}:{String(seconds%60).padStart(2,'0')}</span>}</div>}
-      {stage==='preview'&&<><p>Frame the whole table. Starting uploads video without audio to the club server for analysis. Check both players are ready to be recorded.</p>
-        <button className="btn ink wide" onClick={start}>Start game &amp; record</button><button className="text-btn" onClick={()=>{stopCamera();setStage('select');}}>Change players</button></>}
-      {stage==='record'&&<><p>Keep this page open and your phone unlocked until the game ends.</p><button className="btn stop wide" onClick={()=>{setStage('saving');recorder.current.stop();}}>■ &nbsp; Stop game &amp; submit</button></>}
+    </>:<><p className="kicker">{stage==='record'?'LIVE STREAMING':'MATCH CAPTURE'}</p><h2>{name(a)} <em>vs</em> {name(b)}</h2>
+      {['record','starting'].includes(stage)&&<div className="camera"><video ref={video} playsInline muted autoPlay/>{stage==='record'&&<span className="rec">● LIVE &nbsp; {Math.floor(seconds/60)}:{String(seconds%60).padStart(2,'0')}</span>}</div>}
+      {stage==='record'&&<><p>Game started. Sending video to the local Python server. Anyone can watch this game in the Watch games tab. Keep this page open and your phone unlocked.</p>
+        <p>Viewer link: <a href={`/watch#game-${gameId}`} target="_blank" rel="noreferrer">Watch game {gameId}</a></p>
+        {liveError&&<p className="alert" role="alert">{liveError}</p>}
+        <button className="btn stop wide" onClick={()=>{setStage('saving');recorder.current.stop();}}>■ &nbsp; Stop game &amp; submit</button></>}
       {stage==='starting'&&<p role="status">Starting match...</p>}{stage==='saving'&&<p role="status">Finishing upload. Keep this page open.</p>}
       {stage==='retry'&&<button className="btn ink wide" onClick={async()=>{setStage('saving');try{const g=current.current;await closeMatch(g,g.outcome);refresh();setError(g.outcome==='discard'?'Recording interrupted. Start a new game.':'');setStage(g.outcome==='discard'?'select':'done');}catch(e){setError(e.message);setStage('retry');}}}>Retry submission</button>}
     </>}

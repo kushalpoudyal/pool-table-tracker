@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { api, post } from './api';
 import TableArt from './TableArt';
 import Controller from './Controller';
+import LiveFeed from './LiveFeed';
 import './styles.css';
 
 function Ball({n = 8}) {
@@ -49,6 +50,7 @@ function Dashboard({board, add, ready}) {
     <div className="stats">
       {[[players.length,'Players','On the roster'],[finished.length,'Games scored','Confirmed results'],[matches.filter(m=>m.status==='pending').length,'In review','Awaiting a winner']].map(([value,label,sub],i)=><div className="stat" key={label}><div><p className="kicker">{label}</p><small>{sub}</small></div><strong>{ready ? String(value).padStart(2,'0') : '–'}</strong></div>)}
     </div>
+    {matches.some(m=>m.status==='recording') && <section className="panel watch-banner"><div><p className="kicker">AT THE TABLE NOW</p><h2>Game in progress</h2><p>Open Watch games to see the live feed from the phone.</p></div><a className="btn ink" href="/watch">Watch games &rarr;</a></section>}
     <div className="columns"><section className="panel" id="standings"><header><p className="kicker">01 &nbsp; / &nbsp; THE LADDER</p><h2>Leaderboard</h2><p>Ranked by wins, then fewest losses.</p></header>
       <table><thead><tr>{['Rank','Player','W','L','Win %'].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>
         {sorted.map((p,i)=><tr key={p.id}><td className="rank">{String(i+1).padStart(2,'0')}</td><th scope="row">{p.name}</th><td>{p.wins}</td><td>{p.played-p.wins}</td><td>{p.played ? `${Math.round(p.wins/p.played*100)}%` : '–'}</td></tr>)}
@@ -64,9 +66,21 @@ function Dashboard({board, add, ready}) {
   </>;
 }
 
+function WatchGames({board, ready}) {
+  const games=board.matches.filter(m=>m.status==='recording');
+  return <><section className="watch-title"><p className="kicker">THE CLUBHOUSE &nbsp; / &nbsp; LIVE FROM THE TABLE</p>
+    <h1>Watch games<span>.</span></h1><p>Choose a game below. Anyone on the club network can watch, no sign-in needed.</p>
+    <p className="kicker">{ready?`${games.length} GAME${games.length===1?'':'S'} IN PROGRESS`:'CONNECTING...'}</p></section>
+    {games.map(m=><LiveFeed key={m.id} match={m} players={board.players}/>)}
+    {ready && !games.length && <section className="panel empty"><Ball/><h2>No games in progress</h2><p>When someone starts a game on their phone, the live feed will appear here automatically.</p><a className="btn ink" href="/play">Start a game</a></section>}
+  </>;
+}
+
 function App() {
-  const phone = location.pathname.replace(/\/$/,'') === '/play';
+  const route=location.pathname.replace(/\/$/,'') || '/';
+  const phone=route==='/play', watch=route==='/watch';
   const [board,setBoard] = useState({players:[],matches:[]});
+  const liveCount=board.matches.filter(m=>m.status==='recording').length;
   const [ready,setReady] = useState(false);
   const [error,setError] = useState('');
   const version = useRef(0);
@@ -83,9 +97,9 @@ function App() {
     setBoard(b=>({...b,players:[...b.players.filter(x=>x.id!==p.id),p]}));
   }
   return <><header className="top"><div className="top-inner"><a className="brand" href="/"><Ball/> Rackroom</a>
-    <nav aria-label="Main navigation"><a href="/" aria-current={!phone?'page':undefined}>Scoreboard</a><a href="/play" aria-current={phone?'page':undefined}>Controller</a></nav></div></header>
+    <nav aria-label="Main navigation"><a href="/" aria-current={!phone&&!watch?'page':undefined}>Scoreboard</a><a href="/watch" aria-current={watch?'page':undefined}>Watch games{liveCount>0?` (${liveCount})`:''}</a><a href="/play" aria-current={phone?'page':undefined}>Controller</a></nav></div></header>
     <main className={phone?'shell phone':'shell'}>{error && <p className="alert" role="alert">{error}</p>}
-    {phone?<Controller board={board} add={add} refresh={refresh} PlayerEntry={PlayerEntry}/>:<Dashboard board={board} ready={ready} add={add}/>}</main>
+    {phone?<Controller board={board} add={add} refresh={refresh} PlayerEntry={PlayerEntry}/>:watch?<WatchGames board={board} ready={ready}/>:<Dashboard board={board} ready={ready} add={add}/>}</main>
     <footer><span>RACKROOM</span> &nbsp; / &nbsp; POOL CLUB SCOREKEEPING</footer></>;
 }
 createRoot(document.getElementById('root')).render(<App/>);
