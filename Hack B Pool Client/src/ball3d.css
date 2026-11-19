@@ -28,7 +28,7 @@
   background: #f6efdf;
   animation: b3d-roll var(--spin) var(--delay) linear infinite;
 }
-.b3d-decal i { color: #15101a; font: 800 calc(var(--s) * .25)/1 Inter, system-ui, sans-serif; font-style: normal; letter-spacing: -.04em; }
+.b3d-decal i { color: #15101a; font: 700 calc(var(--s) * .26)/1 Jost, Futura, system-ui, sans-serif; font-style: normal; letter-spacing: -.04em; }
 .b3d-shade {
   position: absolute;
   inset: 0;

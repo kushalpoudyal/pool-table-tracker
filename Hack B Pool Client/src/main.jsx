@@ -104,15 +104,11 @@ function Dashboard({board, add, ready}) {
   </>;
 }
 
-// A short gold curtain the first time someone opens the club in a session.
+// A short gold curtain on every page load.
 function Intro() {
-  const [show,setShow] = useState(()=>{
-    if (reducedMotion()) return false;
-    try { return !sessionStorage.getItem('rackroom-intro'); } catch { return false; }
-  });
+  const [show,setShow] = useState(()=>!reducedMotion());
   useEffect(()=>{
     if (!show) return;
-    try { sessionStorage.setItem('rackroom-intro','1'); } catch { /* storage blocked */ }
     const t=setTimeout(()=>setShow(false),2300);
     return ()=>clearTimeout(t);
   },[show]);
