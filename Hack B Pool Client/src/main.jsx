@@ -113,16 +113,28 @@ function Dashboard({board, add, ready}) {
   </>;
 }
 
-// A short gold curtain on every page load.
+// Page-load intro: a cue strikes the 8-ball, it rolls to centre with a gold burst, then the
+// wordmark appears and the curtain lifts. Skipped under prefers-reduced-motion.
+const SPARKS=Array.from({length:12},(_,i)=>i*30+15);
 function Intro() {
   const [show,setShow] = useState(()=>!reducedMotion());
   useEffect(()=>{
     if (!show) return;
-    const t=setTimeout(()=>setShow(false),2300);
+    const t=setTimeout(()=>setShow(false),2600);
     return ()=>clearTimeout(t);
   },[show]);
   if (!show) return null;
-  return <div className="intro" aria-hidden="true"><div className="intro-mark"><Ball3D n={8} size={72} spin={1.1}/><span>Rackroom</span><i/></div></div>;
+  return <div className="intro" aria-hidden="true"><div className="intro-stage">
+    <div className="intro-rig">
+      <span className="intro-cue"/>
+      <span className="intro-hit"/>
+      <span className="intro-glow"/>
+      <span className="intro-ring"/><span className="intro-ring"/>
+      <span className="intro-sparks">{SPARKS.map(a=><i key={a} style={{'--a':`${a}deg`}}/>)}</span>
+      <span className="intro-ball"><Ball3D n={8} size={84} spin={6}/></span>
+    </div>
+    <span className="intro-word">Rackroom</span><i className="intro-line"/>
+  </div></div>;
 }
 
 function WatchGames({board, ready}) {

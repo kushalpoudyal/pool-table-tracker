@@ -679,20 +679,80 @@ tbody tr.top-1 { background: linear-gradient(90deg, #d9b56c12, transparent 60%);
 .toast-layer { position: fixed; top: 84px; left: 50%; z-index: 40; width: 0; height: 0; }
 .toast-layer .fb-celebrate { top: 0; }
 
-/* Intro curtain, once per session */
+/* Intro: a cue strikes the 8-ball, it rolls to centre, gold burst, the wordmark, then the curtain lifts.
+   Timeline: cue in 0-.4s, draw back, strike at .7s, ball rolls .7-1.16s, impact 1.12s, curtain 1.95-2.6s. */
 .intro {
+  --roll: 150px;
   position: fixed;
   inset: 0;
   z-index: 200;
   display: grid;
   place-items: center;
-  background: radial-gradient(ellipse at 50% 40%, #241426, #070507 70%);
-  animation: curtain 2.3s var(--ease) both;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 55% 42% at 50% 44%, #3a1d4acc 0%, #1a0d1f 50%, transparent 80%),
+    radial-gradient(ellipse at 50% 40%, #241426, #070507 70%);
+  animation: curtain 2.6s var(--ease) both;
   pointer-events: none;
 }
-.intro-mark { display: grid; justify-items: center; gap: 18px; }
-.intro-mark .b3d { animation: intro-ball 1.2s var(--ease) both; }
-.intro-mark span {
+.intro-stage { display: grid; justify-items: center; gap: 30px; }
+.intro-rig { position: relative; width: 84px; height: 84px; animation: fade .35s both; }
+.intro-ball { position: absolute; inset: 0; z-index: 2; animation: intro-roll .46s .7s cubic-bezier(.12, .75, .25, 1) both; }
+.intro .b3d { animation: none; }
+.intro .b3d-decal { animation: intro-decal .46s .7s cubic-bezier(.12, .75, .25, 1) both; }
+.intro-cue {
+  position: absolute;
+  top: 50%;
+  right: calc(100% + var(--roll) + 8px);
+  width: min(46vw, 520px);
+  height: 16px;
+  margin-top: -8px;
+  border-radius: 8px;
+  clip-path: polygon(0 0, 100% 30%, 100% 70%, 0 100%);
+  background: linear-gradient(90deg,
+    #120a06 0%, #2a160c 30%, #b08440 30.4%, #f7e4ae 31.2%, #b08440 32%, #2a160c 32.4%,
+    #3a2214 44%, #b98a52 45.5%, #e6c99a 62%, #f0dcb8 93%, #f6efdf 93.4%, #f6efdf 97.6%, #4f74b8 97.6%);
+  filter: drop-shadow(0 12px 10px #000b);
+  animation: intro-cue 1.1s both;
+}
+.intro-hit {
+  position: absolute;
+  top: 50%;
+  left: calc(-1 * var(--roll) - 14px);
+  width: 28px;
+  height: 28px;
+  margin-top: -14px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0%, #f7e4aecc 35%, transparent 70%);
+  animation: intro-flash .4s .7s ease-out both;
+}
+.intro-glow {
+  position: absolute;
+  inset: -90px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #d9b56c40 0%, transparent 62%);
+  animation: intro-glow 1.2s 1.1s ease-out both;
+}
+.intro-ring {
+  position: absolute;
+  inset: -2px;
+  border: 1.5px solid var(--gold-hi);
+  border-radius: 50%;
+  animation: intro-ring .9s 1.12s cubic-bezier(.2, .7, .3, 1) both;
+}
+.intro-ring + .intro-ring { border-width: 1px; animation-delay: 1.26s; }
+.intro-sparks i {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 16px;
+  margin: -8px 0 0 -1px;
+  border-radius: 2px;
+  background: linear-gradient(var(--gold-hi), transparent);
+  animation: intro-spark .65s 1.12s ease-out both;
+}
+.intro-word {
   font: 600 2.8rem/1 var(--serif);
   letter-spacing: .3em;
   padding-left: .3em;
@@ -701,9 +761,9 @@ tbody tr.top-1 { background: linear-gradient(90deg, #d9b56c12, transparent 60%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: intro-word 1.4s .25s var(--ease) both, shimmer 2s ease-in-out infinite;
+  animation: intro-word .9s 1.12s var(--ease) both, shimmer 2s ease-in-out infinite;
 }
-.intro-mark i { width: 180px; height: 1px; background: linear-gradient(90deg, transparent, var(--gold-hi), transparent); animation: intro-line 1.2s .45s var(--ease) both; }
+.intro-line { width: 200px; height: 1px; margin-top: -14px; background: linear-gradient(90deg, transparent, var(--gold-hi), transparent); animation: intro-line .9s 1.3s var(--ease) both; }
 
 /* Controller */
 .phone { max-width: 620px; }
@@ -853,12 +913,57 @@ tbody tr.top-1 { background: linear-gradient(90deg, #d9b56c12, transparent 60%);
 @keyframes guides { 50% { inset: 10%; opacity: .7; } }
 @keyframes recording-pulse { 50% { box-shadow: 0 0 0 5px #ff809b33; } }
 @keyframes curtain {
-  0%, 62% { opacity: 1; clip-path: inset(0 0 0 0); }
+  0%, 75% { opacity: 1; clip-path: inset(0 0 0 0); }
   100% { opacity: 1; clip-path: inset(0 0 100% 0); }
 }
-@keyframes intro-ball { from { opacity: 0; transform: translateX(-60vw) rotate(-540deg); } }
+@keyframes intro-cue {
+  0% { opacity: 0; transform: translateX(-55vw); }
+  36% { opacity: 1; transform: translateX(-14px); }
+  56% { transform: translateX(-46px); }
+  64% { transform: translateX(6px); }
+  72% { opacity: 1; transform: translateX(14px); }
+  100% { opacity: 0; transform: translateX(-24px); }
+}
+@keyframes intro-roll { from { transform: translateX(calc(-1 * var(--roll))); } }
+@keyframes intro-flash { 0% { opacity: 0; transform: scale(.2); } 25% { opacity: 1; } 100% { opacity: 0; transform: scale(1.9); } }
+@keyframes intro-glow { 0% { opacity: 0; transform: scale(.6); } 25% { opacity: 1; } 100% { opacity: .35; transform: scale(1); } }
+@keyframes intro-ring { 0% { opacity: 0; transform: scale(.95); } 12% { opacity: .9; } 100% { opacity: 0; transform: scale(3.4); } }
+@keyframes intro-spark {
+  0% { opacity: 0; transform: rotate(var(--a)) translateY(-46px) scaleY(.3); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--a)) translateY(-128px) scaleY(1); }
+}
 @keyframes intro-word { from { opacity: 0; letter-spacing: .8em; filter: blur(10px); } }
 @keyframes intro-line { from { transform: scaleX(0); } }
+@keyframes intro-decal {
+  0.00% { transform: translateX(0.0%) scaleX(1.000); }
+  4.17% { transform: translateX(24.8%) scaleX(0.966); }
+  8.33% { transform: translateX(48.0%) scaleX(0.866); }
+  12.50% { transform: translateX(67.9%) scaleX(0.707); }
+  16.67% { transform: translateX(83.1%) scaleX(0.500); }
+  20.83% { transform: translateX(92.7%) scaleX(0.259); }
+  24.99% { transform: translateX(96%) scaleX(.04); }
+  25.00% { transform: translateX(-96%) scaleX(.04); }
+  29.17% { transform: translateX(-92.7%) scaleX(0.259); }
+  33.33% { transform: translateX(-83.1%) scaleX(0.500); }
+  37.50% { transform: translateX(-67.9%) scaleX(0.707); }
+  41.67% { transform: translateX(-48.0%) scaleX(0.866); }
+  45.83% { transform: translateX(-24.8%) scaleX(0.966); }
+  50.00% { transform: translateX(0.0%) scaleX(1.000); }
+  54.17% { transform: translateX(24.8%) scaleX(0.966); }
+  58.33% { transform: translateX(48.0%) scaleX(0.866); }
+  62.50% { transform: translateX(67.9%) scaleX(0.707); }
+  66.67% { transform: translateX(83.1%) scaleX(0.500); }
+  70.83% { transform: translateX(92.7%) scaleX(0.259); }
+  74.99% { transform: translateX(96%) scaleX(.04); }
+  75.00% { transform: translateX(-96%) scaleX(.04); }
+  79.17% { transform: translateX(-92.7%) scaleX(0.259); }
+  83.33% { transform: translateX(-83.1%) scaleX(0.500); }
+  87.50% { transform: translateX(-67.9%) scaleX(0.707); }
+  91.67% { transform: translateX(-48.0%) scaleX(0.866); }
+  95.83% { transform: translateX(-24.8%) scaleX(0.966); }
+  100.00% { transform: translateX(0.0%) scaleX(1.000); }
+}
 
 @media (max-width: 900px) {
   .hero { grid-template-columns: 1fr; }
@@ -901,7 +1006,14 @@ tbody tr.top-1 { background: linear-gradient(90deg, #d9b56c12, transparent 60%);
   .win-track { display: none; }
   .drawer-body { padding: 20px; }
   .drawer-hero { grid-template-columns: 1fr; justify-items: center; }
-  .intro-mark span { font-size: 2.2rem; }
+  /* Too narrow for a side shot: turn the rig so the cue strikes from below and the ball rolls up.
+     The ball's light, shadow and number are turned back so it still reads lit from above. */
+  .intro { --roll: 170px; }
+  .intro-rig { transform: rotate(-90deg); }
+  .intro-rig .b3d { filter: drop-shadow(calc(var(--s) * -.14) 0 calc(var(--s) * .1) #000a); }
+  .intro-rig .b3d-shade, .intro-rig .b3d-decal i { transform: rotate(90deg); }
+  .intro-cue { width: min(48vh, 380px); filter: none; }
+  .intro-word { font-size: 2.1rem; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
