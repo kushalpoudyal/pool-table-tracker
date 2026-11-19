@@ -4,8 +4,9 @@ Run from this folder:  python -m app.main
 Then open http://127.0.0.1:8000 (live phone) or http://127.0.0.1:8000/sandbox (uploaded video).
 
 Rackroom (Hack B Pool API / Client) talks to the live camera through the plain routes at the end of
-this file: GET /status, GET /video, POST /game (two names in break order), GET /watch (the score for
-its Watch tab), GET /game (everything), POST /game/end.
+this file: GET /status, GET /video, POST /game (two names in break order, optional stats), GET /watch
+(the score and commentary lines for its Watch tab), GET /commentary/{id}/audio (a line's speech),
+GET /game (everything), POST /game/end.
 """
 import asyncio
 import json
@@ -153,7 +154,9 @@ def new_game(name: str, body: dict):
     and where to send the final score once the game is decided: "report": {"url", "token"}."""
     typed = list(dict.fromkeys(p.strip() for p in body.get("players", []) if p.strip()))
     # no names typed: the observer recognises the players from the labelled photos in assets/players
-    get(name).observer.new_game(typed, match=body.get("match"), report=body.get("report"))
+    # stats: the players' records for the commentator; missing or odd ones are fine
+    stats = body.get("stats") if isinstance(body.get("stats"), dict) else None
+    get(name).observer.new_game(typed, match=body.get("match"), report=body.get("report"), stats=stats)
     return {"ok": True, "players": typed or "recognising from assets/players", "match": body.get("match")}
 
 
@@ -164,6 +167,16 @@ def end_game(name: str):
     observer = get(name).observer
     observer.end_game()
     return observer.summary(None)
+
+
+@app.get("/{name}/commentary/{line_id}/audio")
+def commentary_audio(name: str, line_id: int):
+    """One commentary line as speech (MP3), streamed as it is made; 404 when there is none (no
+    ELEVENLABS_API_KEY, an old line, or synthesis failed): the browser then speaks the line's text itself."""
+    clips = get(name).observer.commentator.clips
+    if clips is None or not clips.has(line_id):
+        raise HTTPException(404, "no audio for this line")
+    return StreamingResponse(clips.stream(line_id), media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
 
 
 @app.post("/players-photo")
@@ -231,8 +244,15 @@ def live_watch():
 
 @app.post("/game")
 def live_new_game(body: dict):
-    """Rackroom starts a game: {"players": ["breaker", "other"], "match": <match id>, "report": {"url", "token"}}."""
+    """Rackroom starts a game: {"players": ["breaker", "other"], "match": <match id>, "report": {"url", "token"},
+    "stats": {"<name>": {"played", "won", "streak", "best_streak", "avg_potted", "last_played"},
+    "head_to_head": {"played", "wins": {"<name>": n}}}} (stats optional)."""
     return new_game("live", body)
+
+
+@app.get("/commentary/{line_id}/audio")
+def live_commentary_audio(line_id: int):
+    return commentary_audio("live", line_id)
 
 
 @app.post("/game/end")

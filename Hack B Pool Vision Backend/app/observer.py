@@ -17,6 +17,9 @@ The app keeps the score: a pocketed ball counts once, and comes off the score on
 clearly sees it back on the table (a mistake corrected, e.g. a ball that was only hidden by an arm).
 When two looks in a row name the winner, the game is over: looks stop and the final score goes to
 whoever started the game (Rackroom records it).
+
+The commentator (app/commentator.py) hears every applied look and turns it into lines to be spoken; they
+go out with the score (summary()["lines"]).
 """
 import json
 import queue
@@ -28,7 +31,7 @@ import cv2
 import httpx
 import numpy as np
 
-from app import llm, players as roster_photos
+from app import commentator as commentary, llm, players as roster_photos
 
 ROOT = Path(__file__).resolve().parent.parent
 RULES = ROOT / "rules" / "8ball.md"
@@ -77,16 +80,20 @@ def stitch(frames):
 
 
 class Observer:
-    def __init__(self, name, camera, table, active=True):
+    def __init__(self, name, camera, table, active=True, commentator=None):
         self.camera, self.table = camera, table  # table(): the marked outline or None
         self.folder = ROOT / "recordings" / f"{name}-looks"
         self.log = ROOT / "logs" / f"game-{name}.jsonl"
+        self.commentator = commentator or commentary.from_env()
+        self.commentator.on_line(self._log_line)
         self.jobs = queue.Queue()
         self.lock = threading.Lock()
         self.busy = False
         self.running = True
         self.new_game([])  # no names: recognise the players from assets/players
         self.active = active  # live only looks between New game and End game; the sandbox from the start
+        if not active:
+            self.commentator.new_game(self.game_id, [])  # no game yet: nothing to announce
         self.moving, self.recent_moves, self.quiet_since = False, [], None
         threading.Thread(target=self._collect, daemon=True).start()
         threading.Thread(target=self._work, daemon=True).start()
@@ -94,10 +101,11 @@ class Observer:
     def stop(self):
         self.running = False
 
-    def new_game(self, players, match=None, report=None):
+    def new_game(self, players, match=None, report=None, stats=None):
         """players: names in break order, or [] to recognise them from the labelled photos.
         match: the caller's id for this game (Rackroom's match id), kept with the game.
-        report: {"url", "token"} to send the final score to once the game is decided (Rackroom records it)."""
+        report: {"url", "token"} to send the final score to once the game is decided (Rackroom records it).
+        stats: each player's record from Rackroom, for the commentator (see app/commentator.py)."""
         if not players and not roster_photos.photos():
             players = ["Player 1", "Player 2"]  # nothing to recognise people from
         with self.lock:
@@ -112,6 +120,7 @@ class Observer:
             self.claimed = None  # the winner the last look named, waiting for the next look to agree
             self.report = report  # not in memory: memory goes to the LLM and the token must not
             self.active = True
+            self.commentator.new_game(self.game_id, players, stats)
 
     def end_game(self):
         with self.lock:
@@ -162,21 +171,26 @@ class Observer:
                     self.frames.append((t, self._crop(frame)))
                     if len(self.frames) >= WINDOW:
                         self._send()
+            if self.active:
+                self.commentator.tick()
             time.sleep(0.05)
 
     def _work(self):
         while True:
-            game_id, frames = self.jobs.get()
-            if game_id != self.game_id:
-                continue  # a new game started meanwhile
-            self.busy = True
-            try:
-                self._look(frames)
-                if self.memory["winner"] and self.active:
-                    self._finish()
-            except Exception as e:
-                self.feed.insert(0, {"time": time.strftime("%H:%M:%S"), "error": f"couldn't read a look: {e}"})
-            self.busy = False
+            self._handle(*self.jobs.get())
+
+    def _handle(self, game_id, frames):
+        """One queued look: read it, take it into memory, and finish the game if it is decided."""
+        if game_id != self.game_id:
+            return  # a new game started meanwhile
+        self.busy = True
+        try:
+            self._look(frames)
+            if self.memory["winner"] and self.active:
+                self._finish()
+        except Exception as e:
+            self.feed.insert(0, {"time": time.strftime("%H:%M:%S"), "error": f"couldn't read a look: {e}"})
+        self.busy = False
 
     def _look(self, frames):
         m = self.memory
@@ -231,8 +245,20 @@ class Observer:
                  "t0": round(t0), "t1": round(t1), "roster_sheet": bool(images[1:]),
                  **self._apply(a, names if identifying else ())}
         self.feed.insert(0, entry)
+        self._write_log({"game": self.game_id, **entry, "answer": a, "memory": self.memory})
+        self.commentator.heard(entry, self.memory)
+
+    def _write_log(self, record):
+        self.log.parent.mkdir(parents=True, exist_ok=True)
         with self.log.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"game": self.game_id, **entry, "answer": a, "memory": self.memory}) + "\n")
+            f.write(json.dumps(record) + "\n")
+
+    def _log_line(self, line):
+        """Every line the commentator says goes into the game's look log, next to the looks that led to it."""
+        try:
+            self._write_log({"game": line["game"], "time": time.strftime("%H:%M:%S"), "line": line})
+        except OSError:
+            pass
 
     def _apply(self, a, known=()):
         """Takes the look into memory, keeping only what is possible: corrections first, then new pots, each counted once."""
@@ -319,8 +345,9 @@ class Observer:
 
     def summary(self, latest=8):
         """What a Watch screen needs, in one small payload: each player's group, balls potted and balls left,
-        who is at the table, the winner, the caller's match id, and the latest moments of play (newest first;
-        latest=None: the whole game, for the final score)."""
+        who is at the table, the winner, the caller's match id, the latest moments of play (newest first;
+        latest=None: the whole game, for the final score), and the commentator's lines (oldest first: the
+        latest 20, or all of them in the final score)."""
         m = self.memory
         down = {k: sum(b["kind"] == k for b in m["potted"]) for k in LIMITS}
         players = [{"name": p, "group": m["groups"].get(p), "at_table": m["shooting"] == p,
@@ -330,7 +357,9 @@ class Observer:
         events = [{"time": f["time"], "summary": f.get("summary"), "notes": f.get("notes", []),
                    "potted": [{"ball": str(b["ball"]), "pocket": b["pocket"], "by": b["by"]} for b in f.get("potted", [])]}
                   for f in self.feed[:latest] if not f.get("error")]
-        return {"active": self.active, "match": m.get("match"), "winner": m["winner"], "players": players, "events": events}
+        lines = self.commentator.lines(None if latest is None else commentary.SHOWN)
+        return {"active": self.active, "match": m.get("match"), "winner": m["winner"], "players": players,
+                "events": events, "lines": lines}
 
     def status(self):
         m = self.memory
