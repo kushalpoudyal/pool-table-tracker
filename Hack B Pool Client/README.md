@@ -16,6 +16,9 @@ complete recording for analysis. No sign-in is required for viewers.
 Leave Watch games open on another screen; it discovers matches within
 four seconds and removes the feed when the game stops. Live camera
 access still depends on the phone browser exposing `getUserMedia`.
+Watch games can also display an existing remote MJPEG camera via the
+Python proxy. Configure `POOL_STREAM_SERVER` on the API server; the phone
+controller continues uploading its local match to Rackroom.
 Player selection enables **Start game & stream**; a denied or unavailable
 camera reports an error without creating a match. To offer a link from an
 HTTP controller to a separately configured live-camera endpoint, set

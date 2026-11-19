@@ -5,9 +5,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from tracker import router
+from remote_stream import router as stream_router
 
 app = FastAPI(title="Hack B Pool API")
 app.include_router(router)
+app.include_router(stream_router)
 
 
 class HealthResponse(BaseModel):

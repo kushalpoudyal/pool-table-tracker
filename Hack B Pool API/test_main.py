@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+import httpx
 
 from fastapi.testclient import TestClient
 
@@ -23,6 +24,50 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(
             response.json(), {"message": "Hello from the Hack B Pool API!"}
         )
+
+
+class RemoteStreamTests(unittest.TestCase):
+    def test_external_feed_proxy(self):
+        body = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n\xff\xd8test\xff\xd9\r\n"
+
+        class Frames(httpx.SyncByteStream):
+            def __iter__(self):
+                yield body
+
+        def respond(request):
+            if request.url.path == "/status":
+                return httpx.Response(200, json={
+                    "connected": True, "source": "phone", "width": 640, "height": 360, "fps": 5,
+                })
+            return httpx.Response(200, stream=Frames(), headers={
+                "Content-Type": "multipart/x-mixed-replace; boundary=frame",
+            })
+
+        client_type = httpx.Client
+        with patch.dict(os.environ, POOL_STREAM_SERVER="http://camera.test"), patch(
+            "remote_stream.httpx.Client",
+            side_effect=lambda **kwargs: client_type(transport=httpx.MockTransport(respond), **kwargs),
+        ), TestClient(app) as client:
+            self.assertTrue(client.get("/api/stream-server/status").json()["connected"])
+            response = client.get("/api/stream-server/video")
+            self.assertEqual(response.content, body)
+            self.assertEqual(response.headers["content-type"], "multipart/x-mixed-replace; boundary=frame")
+            self.assertEqual(response.headers["cache-control"], "no-store")
+
+    def test_upstream_errors_are_explicit(self):
+        client_type = httpx.Client
+        with patch.dict(os.environ, POOL_STREAM_SERVER="http://camera.test"), patch(
+            "remote_stream.httpx.Client",
+            side_effect=lambda **kwargs: client_type(
+                transport=httpx.MockTransport(lambda request: httpx.Response(503)),
+                **kwargs,
+            ),
+        ), TestClient(app) as client:
+            self.assertEqual(client.get("/api/stream-server/status").status_code, 502)
+            self.assertEqual(client.get("/api/stream-server/video").status_code, 502)
+        with patch.dict(os.environ, POOL_STREAM_SERVER=""), TestClient(app) as client:
+            self.assertEqual(client.get("/api/stream-server/status").json(), {"configured": False})
+            self.assertEqual(client.get("/api/stream-server/video").status_code, 503)
 
 
 class TrackerTests(unittest.TestCase):

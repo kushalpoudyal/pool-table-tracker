@@ -31,6 +31,23 @@ is live-only and explicitly reports when the browser blocks camera access.
 Restrict access to trusted
 participants: this initial local server does not implement user accounts.
 
+## External camera server
+
+Set `POOL_STREAM_SERVER` before starting FastAPI to display an existing
+camera server in the Watch games tab:
+
+```powershell
+$env:POOL_STREAM_SERVER = "http://192.168.1.193:8000"
+```
+
+The upstream contract is `GET /status` (connected, source, width, height,
+fps) and `GET /video` (MJPEG). Rackroom proxies both through its own
+`/api/stream-server` routes, including for HTTPS viewers. The external
+camera does not create leaderboard results or replace local match feeds.
+This connects the existing remote feed; it does not change where the
+Rackroom phone controller uploads. Sending to that remote service requires
+its ingest protocol, which is not exposed by these GET endpoints.
+
 ## External video analyzer
 
 The phone uploads ordered video segments during play. Stopping waits for

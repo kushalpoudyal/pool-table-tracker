@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { api, post } from './api';
 import Controller from './Controller';
 import LiveFeed from './LiveFeed';
+import RemoteFeed from './RemoteFeed';
 import './styles.css';
 
 function Ball({n = 8}) {
@@ -74,8 +75,9 @@ function WatchGames({board, ready}) {
   return <><section className="watch-title"><p className="kicker">THE CLUBHOUSE &nbsp; / &nbsp; LIVE FROM THE TABLE</p>
     <h1>Watch games<span>.</span></h1><p>Choose a game below. Anyone on the club network can watch, no sign-in needed.</p>
     <p className="kicker">{ready?`${games.length} GAME${games.length===1?'':'S'} IN PROGRESS`:'CONNECTING...'}</p></section>
+    <RemoteFeed/>
     {games.map(m=><LiveFeed key={m.id} match={m} players={board.players}/>)}
-    {ready && !games.length && <section className="panel empty watch-empty"><Ball/><h2>No games in progress</h2><p>When someone starts a game on their phone, the live feed will appear here automatically.</p><a className="btn primary" href="/play">Start a game</a></section>}
+    {ready && !games.length && <section className="panel empty watch-empty"><Ball/><h2>No scored games in progress</h2><p>Start a game on your phone to track the matchup. External camera feeds are shown separately above when configured.</p><a className="btn primary" href="/play">Start a game</a></section>}
   </>;
 }
 
