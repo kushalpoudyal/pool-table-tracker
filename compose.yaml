@@ -1,0 +1,73 @@
+# Rackroom for local development.
+#
+#   docker compose up --watch          api on :8000, Vite client on :5173
+#   open http://localhost:5173
+#
+# --watch syncs source edits into the containers (uvicorn --reload and Vite
+# HMR pick them up) and rebuilds when dependencies change. File sync is used
+# rather than bind mounts because file-change events from a Windows host do
+# not reach a Linux container reliably.
+#
+# POOL_STREAM_SERVER and POOL_ANALYZER_KEY are passed through from your shell
+# when set. A stream server running on this machine is reached from the
+# container as http://host.docker.internal:<port>, not localhost.
+
+name: rackroom
+
+services:
+  api:
+    build:
+      context: ./Hack B Pool API
+    ports:
+      - "8000:8000"
+    environment:
+      POOL_DB: /data/pool.sqlite3
+      POOL_STREAM_SERVER: ${POOL_STREAM_SERVER:-}
+      POOL_ANALYZER_KEY: ${POOL_ANALYZER_KEY:-}
+    volumes:
+      - pool-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    develop:
+      watch:
+        - action: sync
+          path: ./Hack B Pool API
+          target: /app
+          ignore:
+            - .venv/
+            - __pycache__/
+            - pool.sqlite3*
+        - action: rebuild
+          path: ./Hack B Pool API/requirements.txt
+        - action: rebuild
+          path: ./Hack B Pool API/requirements-dev.txt
+
+  client:
+    build:
+      context: ./Hack B Pool Client
+    ports:
+      - "5173:5173"
+    environment:
+      API_PROXY_TARGET: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    develop:
+      watch:
+        - action: sync
+          path: ./Hack B Pool Client
+          target: /app
+          ignore:
+            - node_modules/
+            - dist/
+        - action: rebuild
+          path: ./Hack B Pool Client/package.json
+        - action: rebuild
+          path: ./Hack B Pool Client/package-lock.json
+
+volumes:
+  pool-data:
