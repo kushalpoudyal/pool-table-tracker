@@ -144,7 +144,7 @@ function drawBall(ctx, b) {
     ctx.fillStyle = ivory;
     ctx.beginPath(); ctx.arc(0, 0, r * .48, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#15101a';
-    ctx.font = `800 ${r * .62}px Inter, system-ui, sans-serif`;
+    ctx.font = `700 ${r * .66}px Jost, Futura, system-ui, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(String(b.n), 0, r * .04);
     ctx.restore();
@@ -322,6 +322,8 @@ export default function PoolTable() {
       draw();
     });
     resize.observe(el);
+    // Canvas text does not re-render when a web font arrives; redraw once the fonts have loaded.
+    document.fonts?.ready.then(() => { if (game.current === g) draw(); });
 
     // Break automatically the first time the table is on screen, unless the visitor got there first.
     let timer;

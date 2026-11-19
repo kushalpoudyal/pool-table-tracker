@@ -327,8 +327,8 @@
 .fb-stage .panel { backdrop-filter: none; -webkit-backdrop-filter: none; }
 .fb-clock strong { font-size: 1.7rem; }
 .fb-podium-card h3, .fb-h2h-names strong, .fb-highlight h3, .fb-celebrate h2 { font-family: var(--serif); font-weight: 600; letter-spacing: 0; }
-.fb-podium-card h3 { font-size: 1.35rem; }
-.fb-podium-card.place-1 h3 { font-size: 1.75rem; }
+.fb-podium-card h3 { font-size: 1.25rem; }
+.fb-podium-card.place-1 h3 { font-size: 1.6rem; }
 .fb-podium-card.place-1 { border-color: #d9b56c77; box-shadow: 0 20px 50px -20px #d9b56c55, inset 0 1px 0 #f7e4ae22; }
 .fb-podium-card.place-1::before {
   content: "";
@@ -338,7 +338,7 @@
   background: radial-gradient(ellipse at 50% 0, #f7e4ae2e, transparent 60%);
   pointer-events: none;
 }
-.fb-name strong { font: 600 1.15rem/1.2 var(--serif); }
-.fb-h2h-score b { font-family: var(--serif); font-size: 1.8rem; }
+.fb-name strong { font: 600 1.05rem/1.2 var(--serif); }
+.fb-h2h-score b { font-family: var(--serif); font-size: 1.6rem; }
 .fb-stat strong { font-size: 2.4rem; }
 .fb-confetti i { border-radius: 1px; background: var(--gold-hi); }

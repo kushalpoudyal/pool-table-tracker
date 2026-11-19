@@ -16,10 +16,12 @@
   --win: #7fd8a6;
   --loss: #f08a7e;
   --hot: #f2bb68;
-  --serif: "Cormorant Garamond", "Bodoni 72", Didot, Georgia, serif;
-  --serif-num: "DM Serif Display", "Bodoni 72", Didot, Georgia, serif;
-  --sans: Inter, "Avenir Next", system-ui, sans-serif;
-  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  /* Bodoni Moda (display, numbers) with Jost (text, labels): the classic Bodoni + Futura
+     luxury pairing. --mono is a role name for the small spaced capitals, set in Jost. */
+  --serif: "Bodoni Moda", "Bodoni 72", Didot, Georgia, serif;
+  --serif-num: var(--serif);
+  --sans: Jost, Futura, "Avenir Next", system-ui, sans-serif;
+  --mono: var(--sans);
   --ease: cubic-bezier(.2, .8, .2, 1);
   font: 16px/1.55 var(--sans);
   background: var(--bg);
@@ -67,11 +69,11 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 h1, h2, h3, p { margin: 0; }
 h1, h2, h3 { line-height: 1.08; }
 h1 {
-  font: 600 clamp(3rem, 7.2vw, 5.8rem)/.95 var(--serif);
-  letter-spacing: -.025em;
+  font: 600 clamp(2.8rem, 6.6vw, 5.2rem)/1 var(--serif);
+  letter-spacing: -.02em;
 }
 h1 .dot, h1 > span:not(.line):not(.gold-text) { color: var(--accent); }
-h2 { font: 600 clamp(1.5rem, 3vw, 1.9rem)/1.1 var(--serif); letter-spacing: -.01em; }
+h2 { font: 600 clamp(1.4rem, 2.8vw, 1.75rem)/1.12 var(--serif); letter-spacing: -.01em; }
 h3 { font-size: 1rem; font-weight: 650; }
 p, small { color: var(--muted); }
 small { font-size: .8rem; }
@@ -143,8 +145,8 @@ small { font-size: .8rem; }
   text-decoration: none;
 }
 .wordmark {
-  font: 600 1.55rem/1 var(--serif);
-  letter-spacing: .02em;
+  font: 600 1.4rem/1 var(--serif);
+  letter-spacing: .01em;
   background: var(--gold);
   background-size: 220% 100%;
   -webkit-background-clip: text;
@@ -414,7 +416,7 @@ nav a[aria-current="page"] {
 .stat strong {
   display: block;
   margin: 10px 0 2px;
-  font: 600 clamp(2.4rem, 4.4vw, 3.4rem)/1 var(--serif);
+  font: 600 clamp(2.2rem, 4vw, 3rem)/1 var(--serif);
   font-variant-numeric: tabular-nums lining-nums;
   background: linear-gradient(180deg, #fff7e2, var(--stat-color));
   -webkit-background-clip: text;
@@ -497,7 +499,7 @@ tbody tr.top-1 { background: linear-gradient(90deg, #d9b56c12, transparent 60%);
   transition: background-size .4s var(--ease), color .3s;
 }
 .player-link:hover { color: var(--gold-hi); background-size: 100% 1px; }
-.top-1 .player-link { font: 600 1.18rem/1.2 var(--serif); letter-spacing: .01em; }
+.top-1 .player-link { font: 600 1.08rem/1.2 var(--serif); }
 .rank {
   display: inline-grid;
   place-items: center;
@@ -566,7 +568,7 @@ tbody tr.top-1 { background: linear-gradient(90deg, #d9b56c12, transparent 60%);
 .history-empty, .match { padding: 16px 24px; border-top: 1px solid var(--line); }
 .match { transition: background-color .3s, padding-left .4s var(--ease); animation: row-in .6s calc(var(--i, 0) * 50ms) var(--ease) both; }
 .match:hover { background: #d9b56c0a; padding-left: 30px; }
-.match h3 { margin-top: 4px; font: 600 1.18rem/1.2 var(--serif); }
+.match h3 { margin-top: 4px; font: 600 1.06rem/1.25 var(--serif); }
 .match, .remote h2 { overflow-wrap: anywhere; }
 .match small { font: 500 .7rem/1.45 var(--mono); letter-spacing: .08em; }
 .match-details { margin-top: 6px; color: var(--muted); font-size: .82rem; }
@@ -624,7 +626,7 @@ tbody tr.top-1 { background: linear-gradient(90deg, #d9b56c12, transparent 60%);
 .drawer::backdrop { background: #050306b3; backdrop-filter: blur(6px); animation: fade .4s both; }
 .drawer-body { padding: 26px; display: grid; gap: 26px; }
 .drawer-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 18px; }
-.drawer-head h2 { font-size: 2.1rem; overflow-wrap: anywhere; }
+.drawer-head h2 { font-size: 1.9rem; overflow-wrap: anywhere; }
 .drawer-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
 .drawer-hero {
   display: grid;
@@ -648,11 +650,11 @@ tbody tr.top-1 { background: linear-gradient(90deg, #d9b56c12, transparent 60%);
   filter: drop-shadow(0 0 6px #d9b56c66);
 }
 .ring div { display: grid; text-align: center; }
-.ring strong { font: 600 2.1rem/1 var(--serif); }
+.ring strong { font: 600 1.9rem/1 var(--serif); }
 .ring small { font: 500 .62rem/1.6 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
 .drawer-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 10px; margin: 0; }
 .drawer-stats dt { color: var(--muted); font: 500 .62rem/1.4 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
-.drawer-stats dd { margin: 2px 0 0; font: 600 1.8rem/1 var(--serif); color: var(--gold-hi); }
+.drawer-stats dd { margin: 2px 0 0; font: 600 1.6rem/1 var(--serif); color: var(--gold-hi); }
 .drawer-section h3 { margin-bottom: 12px; color: var(--accent); font: 600 .7rem/1.5 var(--mono); letter-spacing: .2em; text-transform: uppercase; }
 .versus, .drawer-games { list-style: none; margin: 0; padding: 0; }
 .versus li {
@@ -691,7 +693,7 @@ tbody tr.top-1 { background: linear-gradient(90deg, #d9b56c12, transparent 60%);
 .intro-mark { display: grid; justify-items: center; gap: 18px; }
 .intro-mark .b3d { animation: intro-ball 1.2s var(--ease) both; }
 .intro-mark span {
-  font: 600 3.2rem/1 var(--serif);
+  font: 600 2.8rem/1 var(--serif);
   letter-spacing: .3em;
   padding-left: .3em;
   background: var(--gold);
@@ -907,5 +909,5 @@ tbody tr.top-1 { background: linear-gradient(90deg, #d9b56c12, transparent 60%);
   .reveal-ready [data-reveal] { opacity: 1; translate: none; }
 }
 
-/* Cormorant only ships old-style figures (0 reads as "o"), so big numbers use DM Serif Display. */
-.stat strong, .drawer-stats dd, .ring strong, .fb-clock strong, .fb-h2h-score b, .fb-stat strong { font-family: var(--serif-num); font-weight: 400; font-variant-numeric: lining-nums tabular-nums; letter-spacing: -.01em; }
+/* Big numbers: Bodoni's lining figures, even widths so counters don't jitter. */
+.stat strong, .drawer-stats dd, .ring strong, .fb-clock strong, .fb-h2h-score b, .fb-stat strong { font-family: var(--serif-num); font-weight: 600; font-variant-numeric: lining-nums tabular-nums; letter-spacing: -.01em; }
