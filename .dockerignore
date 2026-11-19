@@ -1,0 +1,23 @@
+# For the root Dockerfile, built from the repo root. Only the two app folders
+# go into the build context; everything else (docs, the vision backend, git
+# data) stays out. The app folders' own .dockerignore files apply to the
+# compose builds, which use those folders as their context.
+*
+!Hack B Pool API
+!Hack B Pool Client
+
+# Local environments, build output, caches and secrets inside those folders.
+**/.venv
+**/node_modules
+**/dist
+**/__pycache__
+**/*.py[cod]
+**/.env
+**/*.local
+
+# The local database must never be baked into an image.
+**/pool.sqlite3*
+
+# Tests are not needed at run time.
+**/test_*.py
+**/*.test.js
