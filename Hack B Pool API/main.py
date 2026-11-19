@@ -37,5 +37,6 @@ if (client_dist / "index.html").is_file() and (client_dist / "assets").is_dir():
     @app.get("/", include_in_schema=False)
     @app.get("/play", include_in_schema=False)
     @app.get("/watch", include_in_schema=False)
+    @app.get("/leaderboard", include_in_schema=False)
     def clubhouse():
         return FileResponse(client_dist / "index.html", headers={"Cache-Control": "no-store"})

@@ -275,6 +275,11 @@ tbody tr:hover { background: #232035; }
 .empty p, .history-empty { font-size: .85rem; }
 .empty .ball { margin-bottom: 3px; }
 
+.standings-head { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+.standings-head h2 a { text-decoration: none; }
+.standings-head h2 a:hover { color: var(--accent); }
+.full-screen { flex: none; border-color: var(--line); color: var(--accent); }
+.full-screen:hover { background: #c2adff14; }
 .history header, .match { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
 .history select { font-size: .83rem; }
 .history-empty, .match { padding: 15px 22px; border-top: 1px solid var(--line); }
@@ -438,6 +443,7 @@ tbody tr:hover { background: #232035; }
   .shell { padding-top: 15px; }
   .brand { font-size: 1.05rem; gap: 6px; }
   .brand .ball { width: 29px; height: 29px; }
+  .brand .b3d { --s: 29px !important; }
   .top-inner { grid-template-columns: minmax(0, 1fr); padding-block: 10px; }
   nav a { flex: 1; padding: 7px 4px; text-align: center; font-size: .74rem; }
   .hero {

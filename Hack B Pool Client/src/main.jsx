@@ -4,11 +4,10 @@ import { api, post } from './api';
 import Controller from './Controller';
 import LiveFeed from './LiveFeed';
 import RemoteFeed from './RemoteFeed';
+import Leaderboard from './Leaderboard';
+import { Ball, rankPlayers } from './shared';
+import Ball3D from './Ball3D';
 import './styles.css';
-
-function Ball({n = 8}) {
-  return <span aria-hidden="true" className={`ball ball-${n}`}><i>{n}</i></span>;
-}
 
 export function PlayerEntry({onAdded}) {
   const [name, setName] = useState('');
@@ -34,11 +33,8 @@ export function PlayerEntry({onAdded}) {
 function Dashboard({board, add, ready}) {
   const {players,matches} = board;
   const finished = matches.filter(m=>m.status === 'complete');
-  const ranks = new Map(players.map(p=>[p.id,{...p,played:0,wins:0}]));
-  for (const m of finished) {
-    ranks.get(m.a).played++; ranks.get(m.b).played++; ranks.get(m.winner).wins++;
-  }
-  const sorted = [...ranks.values()].sort((a,b)=>b.wins-a.wins || (a.played-a.wins)-(b.played-b.wins) || a.name.localeCompare(b.name));
+  const sorted = rankPlayers(players, matches);
+  const ranks = new Map(sorted.map(p=>[p.id,p]));
   const [filter,setFilter] = useState('all');
   const history = matches.filter(m=>filter==='all' || m.status===filter);
   return <>
@@ -50,11 +46,11 @@ function Dashboard({board, add, ready}) {
       {[[players.length,'Players','On the roster'],[finished.length,'Games scored','Confirmed results'],[matches.filter(m=>m.status==='pending').length,'In review','Awaiting a winner']].map(([value,label,sub])=><div className="stat" key={label}><p>{label}</p><strong>{ready ? value : '–'}</strong><small>{sub}</small></div>)}
     </div>
     {matches.some(m=>m.status==='recording') && <section className="panel watch-banner"><div><p className="kicker">AT THE TABLE NOW</p><h2>Game in progress</h2><p>Open Watch games to see the live feed from the phone.</p></div><a className="btn primary" href="/watch">Watch games &rarr;</a></section>}
-    <div className="columns"><section className="panel" id="standings"><header><h2>Leaderboard</h2><p>Ranked by wins, then fewest losses.</p></header>
+    <div className="columns"><section className="panel" id="standings"><header className="standings-head"><div><h2><a href="/leaderboard">Leaderboard</a></h2><p>Ranked by wins, then fewest losses.</p></div><a className="btn full-screen" href="/leaderboard">Full screen <span aria-hidden="true">⤢</span></a></header>
       {sorted.length > 0 && <table><thead><tr>{['Rank','Player','W','L','Win %'].map(h=><th scope="col" key={h}>{h}</th>)}</tr></thead><tbody>
         {sorted.map((p,i)=>{
-          const winRate = p.played ? Math.round(p.wins / p.played * 100) : null;
-          return <tr key={p.id}><td><span className={i === 0 ? 'rank first' : 'rank'}>{i+1}</span></td><th scope="row">{p.name}</th><td>{p.wins}</td><td>{p.played-p.wins}</td><td>
+          const {winRate} = p;
+          return <tr key={p.id}><td><span className={i === 0 ? 'rank first' : 'rank'}>{i+1}</span></td><th scope="row">{p.name}</th><td>{p.wins}</td><td>{p.losses}</td><td>
             {winRate === null ? '–' : <span className="win-rate"><span aria-hidden="true" className="win-track"><span style={{width: `${winRate}%`}}/></span>{winRate}%</span>}
           </td></tr>;
         })}
@@ -83,7 +79,7 @@ function WatchGames({board, ready}) {
 
 function App() {
   const route=location.pathname.replace(/\/$/,'') || '/';
-  const phone=route==='/play', watch=route==='/watch';
+  const phone=route==='/play', watch=route==='/watch', fullBoard=route==='/leaderboard';
   const [board,setBoard] = useState({players:[],matches:[]});
   const liveCount=board.matches.filter(m=>m.status==='recording').length;
   const [ready,setReady] = useState(false);
@@ -101,7 +97,8 @@ function App() {
     ++version.current;
     setBoard(b=>({...b,players:[...b.players.filter(x=>x.id!==p.id),p]}));
   }
-  return <><header className="top"><div className="top-inner"><a className="brand" href="/"><Ball/> Rackroom</a>
+  if (fullBoard) return <Leaderboard board={board} ready={ready} error={error}/>;
+  return <><header className="top"><div className="top-inner"><a className="brand" href="/"><Ball3D n={8} size={34} spin={6}/> Rackroom</a>
     <nav aria-label="Main navigation"><a href="/" aria-current={!phone&&!watch?'page':undefined}>Scoreboard</a><a href="/watch" aria-current={watch?'page':undefined}>Watch games{liveCount>0?` (${liveCount})`:''}</a><a href="/play" aria-current={phone?'page':undefined}>Controller</a></nav>
     <span className={ready && !error ? 'connection online' : 'connection'}>{error ? 'Reconnecting' : ready ? 'Board online' : 'Connecting'}</span></div></header>
     <main className={phone?'shell phone':'shell'}>{error && <p className="alert" role="alert">{error}</p>}

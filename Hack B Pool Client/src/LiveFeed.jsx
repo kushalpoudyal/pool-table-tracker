@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-export default function LiveFeed({match, players}) {
+// Polls the latest JPEG the phone pushed for a match and paints it into an <img>.
+export function useLiveFrame(matchId, interval=250) {
   const image=useRef(null);
   const [status,setStatus]=useState('Waiting for camera...');
   useEffect(()=>{
@@ -8,7 +9,7 @@ export default function LiveFeed({match, players}) {
     const controller=new AbortController();
     async function frame() {
       try {
-        const response=await fetch(`/api/matches/${match.id}/frame`,{
+        const response=await fetch(`/api/matches/${matchId}/frame`,{
           cache:'no-store',signal:controller.signal,
         });
         if(response.status===204) {
@@ -29,11 +30,16 @@ export default function LiveFeed({match, players}) {
           image.current?.removeAttribute('src');
           setStatus(`Feed interrupted: ${e.message}. Reconnecting...`);
         }
-      } finally {if(!disposed) timer=setTimeout(frame,250);}
+      } finally {if(!disposed) timer=setTimeout(frame,interval);}
     }
     frame();
     return ()=>{disposed=true;clearTimeout(timer);controller.abort();if(url) URL.revokeObjectURL(url);};
-  },[match.id]);
+  },[matchId,interval]);
+  return [image,status];
+}
+
+export default function LiveFeed({match, players}) {
+  const [image,status]=useLiveFrame(match.id);
   const name=id=>players.find(p=>p.id===id)?.name;
   return <section className="panel live-panel" id={`game-${match.id}`}>
     <header><span className="badge recording">{match.live?'LIVE':'GAME STARTED'}</span>
