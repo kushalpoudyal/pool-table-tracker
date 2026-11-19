@@ -94,10 +94,8 @@ class StreamServerGameTests(unittest.TestCase):
         self.sent, self.final = [], {}
 
         def respond(request):
-            if request.url.path == "/watch":
-                return httpx.Response(200, json=self.final)
             self.sent.append((request.method, request.url.path, request.content and json.loads(request.content)))
-            return httpx.Response(200, json={"ok": True})
+            return httpx.Response(200, json=self.final if request.url.path == "/game/end" else {"ok": True})
 
         self.client_type = client_type = httpx.Client
         mock = patch("remote_stream.httpx.Client",
@@ -110,7 +108,8 @@ class StreamServerGameTests(unittest.TestCase):
 
     def test_game_is_recorded_with_the_stream_servers_winner(self):
         game = self.client.post("/api/stream-server/game", json={"a": self.a, "b": self.b}).json()
-        self.assertEqual(self.sent, [("POST", "/game", {"players": ["Ada", "Sam"], "match": game["id"]})])
+        report = {"url": f"http://testserver/api/stream-server/game/{game['id']}/result", "token": game["token"]}
+        self.assertEqual(self.sent, [("POST", "/game", {"players": ["Ada", "Sam"], "match": game["id"], "report": report})])
         self.final = {"match": game["id"], "winner": "sam", "players": [{"name": "Sam", "potted": ["9", "8"]}]}
         url = f"/api/stream-server/game/{game['id']}/end"
         self.assertEqual(self.client.post(url, headers={"X-Recorder-Key": "wrong"}).status_code, 403)
@@ -121,6 +120,16 @@ class StreamServerGameTests(unittest.TestCase):
         self.assertEqual((match["status"], match["winner"], match["external"]), ("complete", self.b, 1))
         self.assertEqual(match["details"]["players"][0]["potted"], ["9", "8"])
         self.assertEqual(self.client.post(url, headers={"X-Recorder-Key": game["token"]}).status_code, 409)
+
+    def test_end_game_trigger_records_the_stream_servers_result(self):
+        game = self.client.post("/api/stream-server/game", json={"a": self.a, "b": self.b}).json()
+        url, final = f"/api/stream-server/game/{game['id']}/result", {"match": game["id"], "winner": "Ada", "events": []}
+        self.assertEqual(self.client.post(url, json=final, headers={"X-Recorder-Key": "wrong"}).status_code, 403)
+        recorded = self.client.post(url, json=final, headers={"X-Recorder-Key": game["token"]}).json()
+        self.assertEqual((recorded["status"], recorded["winner"]), ("complete", self.a))
+        self.assertEqual(self.client.get("/api/board").json()["matches"][0]["details"], final)
+        stop = self.client.post(f"/api/stream-server/game/{game['id']}/end", headers={"X-Recorder-Key": game["token"]})
+        self.assertEqual(stop.status_code, 409)  # already recorded by the trigger
 
     def test_game_without_a_winner_is_not_counted(self):
         game = self.client.post("/api/stream-server/game", json={"a": self.a, "b": self.b}).json()

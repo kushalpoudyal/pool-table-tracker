@@ -569,6 +569,10 @@ tbody tr.top-1 { background: linear-gradient(90deg, #d9b56c12, transparent 60%);
 .match h3 { margin-top: 4px; font: 600 1.18rem/1.2 var(--serif); }
 .match, .remote h2 { overflow-wrap: anywhere; }
 .match small { font: 500 .7rem/1.45 var(--mono); letter-spacing: .08em; }
+.match-details { margin-top: 6px; color: var(--muted); font-size: .82rem; }
+.match-details summary { cursor: pointer; margin-top: 4px; }
+.match-details ol { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.match-details time { font: 500 .7rem var(--mono); margin-right: 6px; }
 .match em, .remote em { color: var(--muted); font-size: .72em; font-weight: 500; }
 .badge {
   display: inline-flex;

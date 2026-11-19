@@ -47,6 +47,15 @@ function Ticker({items}) {
   </section>;
 }
 
+// The table camera's final score for its games: each player's group and balls, and the game log.
+function MatchDetails({d}) {
+  return <div className="match-details">
+    <p>{d.players.map(p=>`${p.name}: ${p.group||'open table'}, ${p.potted.length?`potted ${p.potted.join(', ')}`:'nothing potted'}`).join(' · ')}</p>
+    {d.events?.length>0 && <details><summary>Game log ({d.events.length} moments)</summary>
+      <ol>{[...d.events].reverse().map((e,i)=><li key={i}><time>{e.time}</time> {e.summary}{e.notes.length>0 && <em> · {e.notes.join('; ')}</em>}</li>)}</ol></details>}
+  </div>;
+}
+
 function Dashboard({board, add, ready}) {
   const {players,matches} = board;
   const finished = matches.filter(m=>m.status === 'complete');
@@ -96,7 +105,7 @@ function Dashboard({board, add, ready}) {
     <aside className="panel entry" data-reveal style={{'--d': '120ms'}}><p className="kicker">Membership</p><h2>Add a player</h2><p>New players can be selected in the controller.</p><PlayerEntry onAdded={add}/></aside></div>
     <section className="panel history" id="history" data-reveal><header><div><p className="kicker">The ledger</p><h2>Match history</h2></div>
       <select aria-label="Filter match history" value={filter} onChange={e=>setFilter(e.target.value)}>{Object.entries({all:'All matches',recording:'Recording',pending:'In review',complete:'Scored',interrupted:'Interrupted'}).map(([v,s])=><option key={v} value={v}>{s}</option>)}</select></header>
-      {history.map((m,i)=><article className="match" key={m.id} style={{'--i': Math.min(i, 12)}}><div><small>GAME {String(m.id).padStart(3,'0')} &middot; {new Date(m.started).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</small><h3>{name(m.a)} <em>vs</em> {name(m.b)}</h3></div><span className={`badge ${m.status}`}>{m.status==='complete'?`${name(m.winner)} won`:({recording:'Recording',pending:'Awaiting analysis',interrupted:'Interrupted'})[m.status]}</span></article>)}
+      {history.map((m,i)=><article className="match" key={m.id} style={{'--i': Math.min(i, 12)}}><div><small>GAME {String(m.id).padStart(3,'0')} &middot; {new Date(m.started).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</small><h3>{name(m.a)} <em>vs</em> {name(m.b)}</h3>{m.details && <MatchDetails d={m.details}/>}</div><span className={`badge ${m.status}`}>{m.status==='complete'?`${name(m.winner)} won`:({recording:'Recording',pending:'Awaiting analysis',interrupted:'Interrupted'})[m.status]}</span></article>)}
       {!history.length && <p className="history-empty">{!ready?'Connecting to the match log...':matches.length?'No matches with this status.':'No matches yet. Start a game from the phone controller.'}</p>}
     </section>
     {selected >= 0 && <PlayerDrawer player={sorted[selected]} rank={selected+1} total={sorted.length} board={board} onClose={closeProfile}/>}

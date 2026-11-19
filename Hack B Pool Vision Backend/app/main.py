@@ -149,18 +149,21 @@ def watch(name: str):
 
 @app.post("/{name}/game")
 def new_game(name: str, body: dict):
-    """Start a new game with these player names (the first one breaks), and optionally the caller's match id."""
+    """Start a new game with these player names (the first one breaks), and optionally the caller's match id
+    and where to send the final score once the game is decided: "report": {"url", "token"}."""
     typed = list(dict.fromkeys(p.strip() for p in body.get("players", []) if p.strip()))
     # no names typed: the observer recognises the players from the labelled photos in assets/players
-    get(name).observer.new_game(typed, match=body.get("match"))
+    get(name).observer.new_game(typed, match=body.get("match"), report=body.get("report"))
     return {"ok": True, "players": typed or "recognising from assets/players", "match": body.get("match")}
 
 
 @app.post("/{name}/game/end")
 def end_game(name: str):
-    """Stop sending looks (the live camera costs a look every 5 s while a game is on)."""
-    get(name).observer.end_game()
-    return {"ok": True}
+    """Stop sending looks (the live camera costs a look every 5 s while a game is on). Returns the final score
+    with every moment of the game, which Rackroom records."""
+    observer = get(name).observer
+    observer.end_game()
+    return observer.summary(None)
 
 
 @app.post("/players-photo")
@@ -228,7 +231,7 @@ def live_watch():
 
 @app.post("/game")
 def live_new_game(body: dict):
-    """Rackroom starts a game: {"players": ["breaker", "other"], "match": <match id>}."""
+    """Rackroom starts a game: {"players": ["breaker", "other"], "match": <match id>, "report": {"url", "token"}}."""
     return new_game("live", body)
 
 

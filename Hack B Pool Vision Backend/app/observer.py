@@ -15,6 +15,8 @@ descriptions carry only those players.
 
 The app keeps the score: a pocketed ball counts once, and comes off the score only when a later look
 clearly sees it back on the table (a mistake corrected, e.g. a ball that was only hidden by an arm).
+When two looks in a row name the winner, the game is over: looks stop and the final score goes to
+whoever started the game (Rackroom records it).
 """
 import json
 import queue
@@ -23,6 +25,7 @@ import time
 from pathlib import Path
 
 import cv2
+import httpx
 import numpy as np
 
 from app import llm, players as roster_photos
@@ -91,9 +94,10 @@ class Observer:
     def stop(self):
         self.running = False
 
-    def new_game(self, players, match=None):
+    def new_game(self, players, match=None, report=None):
         """players: names in break order, or [] to recognise them from the labelled photos.
-        match: the caller's id for this game (Rackroom's match id), kept with the game."""
+        match: the caller's id for this game (Rackroom's match id), kept with the game.
+        report: {"url", "token"} to send the final score to once the game is decided (Rackroom records it)."""
         if not players and not roster_photos.photos():
             players = ["Player 1", "Player 2"]  # nothing to recognise people from
         with self.lock:
@@ -105,6 +109,8 @@ class Observer:
             self.frames, self.previous = [], None  # previous: last frame of the last look, photo 1 of the next
             self.started_at = None  # camera time of the first frame of this game
             self.guest_looks = 0  # looks so far with a provisional Guest among the players
+            self.claimed = None  # the winner the last look named, waiting for the next look to agree
+            self.report = report  # not in memory: memory goes to the LLM and the token must not
             self.active = True
 
     def end_game(self):
@@ -166,6 +172,8 @@ class Observer:
             self.busy = True
             try:
                 self._look(frames)
+                if self.memory["winner"] and self.active:
+                    self._finish()
             except Exception as e:
                 self.feed.insert(0, {"time": time.strftime("%H:%M:%S"), "error": f"couldn't read a look: {e}"})
             self.busy = False
@@ -277,8 +285,11 @@ class Observer:
             m["shooting"] = a["shooting"]
         if a.get("on_table"):
             m["on_table"] = a["on_table"]
-        if a.get("winner") in players:
-            m["winner"] = a["winner"]
+        # a winner ends the game, so it takes two looks in a row: one misread 8 must not end a real game
+        claim = a.get("winner") if a.get("winner") in players else None
+        if claim and claim == self.claimed:
+            m["winner"] = claim
+        self.claimed = claim
         return {"summary": a.get("summary"), "potted": new, "notes": notes, "shooting": m["shooting"]}
 
     def _rename(self, old, new):
@@ -292,9 +303,24 @@ class Observer:
         if m["shooting"] == old:
             m["shooting"] = new
 
-    def summary(self):
+    def _finish(self):
+        """The game is decided: stop looking and send the final score to whoever started the game. If sending
+        fails, Stop game in Rackroom still records it (POST /game/end returns the same final score)."""
+        self.end_game()
+        if not self.report:
+            return
+        try:
+            httpx.post(self.report["url"], json=self.summary(None), headers={"X-Recorder-Key": self.report["token"]},
+                       timeout=10).raise_for_status()
+            note = "game over: result sent"
+        except httpx.HTTPError as e:
+            note = f"game over: couldn't send the result ({e})"
+        self.feed[0]["notes"].append(note)
+
+    def summary(self, latest=8):
         """What a Watch screen needs, in one small payload: each player's group, balls potted and balls left,
-        who is at the table, the winner, the caller's match id, and the latest moments of play (newest first)."""
+        who is at the table, the winner, the caller's match id, and the latest moments of play (newest first;
+        latest=None: the whole game, for the final score)."""
         m = self.memory
         down = {k: sum(b["kind"] == k for b in m["potted"]) for k in LIMITS}
         players = [{"name": p, "group": m["groups"].get(p), "at_table": m["shooting"] == p,
@@ -303,7 +329,7 @@ class Observer:
                    for p in m["players"]]
         events = [{"time": f["time"], "summary": f.get("summary"), "notes": f.get("notes", []),
                    "potted": [{"ball": str(b["ball"]), "pocket": b["pocket"], "by": b["by"]} for b in f.get("potted", [])]}
-                  for f in self.feed[:8] if not f.get("error")]
+                  for f in self.feed[:latest] if not f.get("error")]
         return {"active": self.active, "match": m.get("match"), "winner": m["winner"], "players": players, "events": events}
 
     def status(self):

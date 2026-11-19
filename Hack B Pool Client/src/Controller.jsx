@@ -47,6 +47,10 @@ export default function Controller({board, add, refresh, PlayerEntry}) {
     poll();
     return ()=>{disposed=true;clearTimeout(timer);};
   },[stage,external]);
+  useEffect(()=>{  // the table camera ended the game itself (or Stop came second): show the recorded result
+    const m=board.matches.find(x=>x.id===gameId);
+    if(current.current?.external && ['record','retry'].includes(stage) && m && m.status!=='recording') {setError('');setStage('done');}
+  },[board,stage,gameId]);
   useEffect(()=>{
     if(stage!=='record' || external) return;
     let disposed=false, timer;

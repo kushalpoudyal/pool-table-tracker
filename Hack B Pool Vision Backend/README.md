@@ -117,17 +117,20 @@ Rackroom reaches the live camera through plain routes (the same as `/live/...`):
 |---|---|
 | `GET /status` | camera status: `connected`, `source`, `width`, `height`, `fps` (Rackroom's `POOL_STREAM_SERVER` contract) |
 | `GET /video` | the live MJPEG feed with the detection overlay |
-| `POST /game` | start a game: `{"players": ["<breaker>", "<other>"], "match": <Rackroom match id>}`; names in break order. Recognition from photos is skipped, and the photos only map the names to faces |
+| `POST /game` | start a game: `{"players": ["<breaker>", "<other>"], "match": <Rackroom match id>, "report": {"url", "token"}}`; names in break order. Recognition from photos is skipped, and the photos only map the names to faces. `report`: where to send the final score once the game is decided |
 | `GET /watch` | the score for a Watch screen: `players` (name, group, potted, left, at_table), `winner`, `match`, `events` (latest moments, newest first). Rackroom's API forwards it as `/api/stream-server/game` and the Watch tab shows it under the table camera |
 | `GET /game` | everything: `memory` (players, groups, potted balls with who potted them, who is at the table, winner, match id), `score`, and the feed of looks |
-| `POST /game/end` | stop looking (the live camera costs an LLM look every few seconds while a game is on) |
+| `POST /game/end` | stop looking (the live camera costs an LLM look every few seconds while a game is on); returns the final score: the `/watch` fields with every moment of the game |
 
 How Rackroom uses them: its Controller (`/play`), when `POOL_STREAM_SERVER` is set, starts a game with
 `POST /api/stream-server/game {"a": <player id>, "b": <player id>}`. That makes a Rackroom match and sends
 the two names here (`POST /game`). It shows `/video` and the score while the game is on. Stop calls
-`POST /api/stream-server/game/{id}/end`: Rackroom calls `POST /game/end` and reads `GET /watch`. Our `winner`
-(matched to a player by name) becomes the match winner and counts on the leaderboard; no winner means the
-match is `interrupted` and not counted. The final `/watch` is kept with the match (`details` in `/api/board`).
+`POST /api/stream-server/game/{id}/end`: Rackroom calls `POST /game/end` and records the final score it returns.
+The end-game trigger needs no Stop: when two looks in a row name the winner, this server stops looking and sends
+the final score to the `report` URL (`POST /api/stream-server/game/{id}/result`, with the match's
+`X-Recorder-Key`), and the Controller shows the result. Either way our `winner` (matched to a player by name)
+becomes the match winner and counts on the leaderboard; no winner means the match is `interrupted` and not
+counted. The final score is kept with the match (`details` in `/api/board`) and shown in Match history.
 
 Rackroom's API also defaults to port 8000: on a shared machine start this one with `PORT=8100`
 (PowerShell: `$env:PORT="8100"`) and set `POOL_STREAM_SERVER` to match.
