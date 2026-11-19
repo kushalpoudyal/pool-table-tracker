@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-// Polls the latest JPEG the phone pushed for a match and paints it into an <img>.
+// Polls the latest JPEG the phone pushed for a match and paints it into an <img>. No matchId: no polling.
 export function useLiveFrame(matchId, interval=250) {
   const image=useRef(null);
   const [status,setStatus]=useState('Waiting for camera...');
   useEffect(()=>{
+    if(matchId==null) return;
     let disposed=false, timer, url;
     const controller=new AbortController();
     async function frame() {

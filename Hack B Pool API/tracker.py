@@ -1,3 +1,4 @@
+import json
 import os
 import secrets
 import sqlite3
@@ -11,6 +12,7 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api")
+EXTERNAL = "external/stream-server"  # the mime of matches scored by the stream server: no video is uploaded here
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS players(id INTEGER PRIMARY KEY, name TEXT NOT NULL, key TEXT UNIQUE);
 CREATE TABLE IF NOT EXISTS matches(
@@ -21,6 +23,7 @@ CREATE TABLE IF NOT EXISTS chunks(match_id INTEGER, seq INTEGER, data BLOB NOT N
  PRIMARY KEY(match_id,seq));
 CREATE TABLE IF NOT EXISTS live_frames(
  match_id INTEGER PRIMARY KEY, data BLOB NOT NULL, updated REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS match_details(match_id INTEGER PRIMARY KEY, details TEXT NOT NULL);
 """
 
 
@@ -55,11 +58,14 @@ def board():
         players = c.execute("SELECT id,name FROM players ORDER BY name COLLATE NOCASE").fetchall()
         games = c.execute("""
             SELECT m.id,a,b,status,winner,started,
-                   coalesce(f.updated > ?,0) AND status='recording' AS live
+                   coalesce(f.updated > ?,0) AND status='recording' AS live, mime=? AS external, d.details
             FROM matches m LEFT JOIN live_frames f ON f.match_id=m.id
+            LEFT JOIN match_details d ON d.match_id=m.id
             ORDER BY m.id DESC
-        """, (time.time() - 5,)).fetchall()
-    return {"players": list(map(dict, players)), "matches": list(map(dict, games))}
+        """, (time.time() - 5, EXTERNAL)).fetchall()
+    # details: the external camera's final score for its games (see remote_stream.py), else null
+    matches = [{**dict(g), "details": json.loads(g["details"]) if g["details"] else None} for g in games]
+    return {"players": list(map(dict, players)), "matches": matches}
 
 
 @router.post("/players", status_code=201)

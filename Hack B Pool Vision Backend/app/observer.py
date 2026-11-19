@@ -10,7 +10,8 @@ after a look is sent; pots follow when the whole answer is in (~4 s).
 Players are recognised from the labelled photos in assets/players/ (app/players.py stitches them into
 one roster sheet). With no names typed, a game's first looks carry the sheet and the LLM works out who
 is playing from faces, hair and build, and notes today's clothes; once every player has today's
-clothes, the sheet stops being sent and looks stay small.
+clothes, the sheet stops being sent and looks stay small. With names given (Rackroom), the sheet and
+descriptions carry only those players.
 
 The app keeps the score: a pocketed ball counts once, and comes off the score only when a later look
 clearly sees it back on the table (a mistake corrected, e.g. a ball that was only hidden by an arm).
@@ -37,7 +38,7 @@ GUEST_LOOKS = 6  # looks to keep trying to recognise a Guest before accepting th
 TILE = (640, 360)  # 3 x 2 tiles = 1920 x 720: wide images keep the most detail in the model
 LIMITS = {"solid": 7, "stripe": 7, "eight": 1}
 
-PROMPT = """You keep the score of a pool game from one camera. You see it in short looks.
+PROMPT = """You are the referee and live commentator of a pool game, watching it from one camera in short looks.
 
 House rules and the balls:
 {rules}
@@ -47,15 +48,18 @@ What you remember so far (JSON): {memory}
 Your last looks: {recent}
 
 The {stitched} is {n} photos taken about one second apart, numbered 1 to {n} in order (left to right, top row first), covering {t0}-{t1} s of the game.{overlap}
-Look for any ball dropping into a pocket: it is on the table in one photo and gone in a later one (also compare photo 1 with the balls you remember on the table). A ball sitting in the jaws has not dropped. Only count a ball as potted if you see it go in, or you can clearly see its pocket and it is gone; a ball hidden by an arm, a body or the edge of the photo is not potted. Work out who is at the table and shooting.
+Look for any ball dropping into a pocket: it is on the table in one photo and gone in a later one (also compare photo 1 with the balls you remember on the table). A ball sitting in the jaws has not dropped. Only count a ball as potted if you see it go in, or you can clearly see its pocket and it is gone; a ball hidden by an arm, a body or the edge of the photo is not potted. Work out who is at the table and shooting, and whether a shot broke the rules. Report only what the photos show: never guess a pot, a foul or a winner.
 Reply with compact JSON only, keys exactly, "shooting" first:
 {{"shooting": one of {names} or null,
  "playing": [the names of everyone playing, from {names}],
  "potted": [["ball number or colour", "solid|stripe|eight|cue", "pocket", "player who potted it"]],
  "back": ["balls your memory lists as potted that you can clearly see on the table now (a mistake to correct)"],
  "groups": {{"<player>": "solids|stripes"}} or null,
- "looks": {{"<player>": "what they are wearing today, to recognise them from above"}}, "on_table": ["balls you can see on the table now"],
- "winner": null or one of {names}, "summary": "one sentence: what happened in these seconds"}}"""
+ "foul": null or "who fouled and how",
+ "looks": {{"<player>": "what they are wearing today, to recognise them from above"}}, only for players your memory has no looks for, else {{}},
+ "on_table": ["balls you can see on the table now"],
+ "winner": null, or one of {names} once the rules decide the game,
+ "summary": "one line of live commentary: what happened in these seconds, and who is ahead"}}"""
 
 def stitch(frames):
     """[(t, frame)] -> one image: numbered, timestamped tiles in a 3 x 2 grid."""
@@ -183,6 +187,8 @@ class Observer:
             self.guest_looks += 1
         identifying = known and (len(m["players"]) < 2 or (GUEST in m["players"] and self.guest_looks <= GUEST_LOOKS))
         names = (known + [GUEST]) if identifying else (m["players"] or ["Player 1", "Player 2"])
+        if not identifying and sheet is not None:  # the players are named: only their photos, not everyone's
+            people, sheet = roster_photos.only(people, sheet, m["players"])
         images = [llm.image_part(image)]
         # the roster sheet only until both players are known and their clothes today are noted
         if sheet is not None and (identifying or any(p not in m["looks"] for p in m["players"])):
@@ -245,7 +251,8 @@ class Observer:
         new = []
         for ball, kind, pocket, by in [(list(x) + [None] * 4)[:4] for x in a.get("potted") or []]:
             if kind == "cue":
-                notes.append("cue ball potted (scratch)")
+                if not a.get("foul"):  # the foul note below says it otherwise
+                    notes.append("cue ball potted (scratch)")
                 continue
             if str(ball) in down and str(ball).isdigit():
                 continue  # already counted in an earlier look
@@ -255,6 +262,8 @@ class Observer:
             counts[kind] = counts.get(kind, 0) + 1
             new.append({"ball": ball, "kind": kind, "pocket": pocket, "by": by if by in players else m["shooting"]})
         m["potted"] += new
+        if a.get("foul"):
+            notes.append(f"foul: {a['foul']}")
         for p, g in (a.get("groups") or {}).items():
             if p in players and g in ("solids", "stripes") and m["groups"][p] is None:
                 m["groups"][p] = g
@@ -282,6 +291,20 @@ class Observer:
                 b["by"] = new
         if m["shooting"] == old:
             m["shooting"] = new
+
+    def summary(self):
+        """What a Watch screen needs, in one small payload: each player's group, balls potted and balls left,
+        who is at the table, the winner, the caller's match id, and the latest moments of play (newest first)."""
+        m = self.memory
+        down = {k: sum(b["kind"] == k for b in m["potted"]) for k in LIMITS}
+        players = [{"name": p, "group": m["groups"].get(p), "at_table": m["shooting"] == p,
+                    "potted": [str(b["ball"]) for b in m["potted"] if b["by"] == p],
+                    "left": LIMITS[m["groups"][p][:-1]] - down[m["groups"][p][:-1]] if m["groups"].get(p) else None}
+                   for p in m["players"]]
+        events = [{"time": f["time"], "summary": f.get("summary"), "notes": f.get("notes", []),
+                   "potted": [{"ball": str(b["ball"]), "pocket": b["pocket"], "by": b["by"]} for b in f.get("potted", [])]}
+                  for f in self.feed[:8] if not f.get("error")]
+        return {"active": self.active, "match": m.get("match"), "winner": m["winner"], "players": players, "events": events}
 
     def status(self):
         m = self.memory

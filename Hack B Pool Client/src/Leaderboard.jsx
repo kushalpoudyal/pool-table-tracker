@@ -184,12 +184,14 @@ function HeadToHead({match, board, ranked, name}) {
 }
 
 function LiveGame({match, board, ranked, name}) {
-  const [image, status] = useLiveFrame(match.id, 500);
+  // An external match is filmed by the stream server's table camera, not by a phone browser.
+  const [image, status] = useLiveFrame(match.external ? null : match.id, 500);
   return <>
     <div className="fb-live-title"><span className="badge recording fb-pulse">{match.live ? 'LIVE' : 'GAME STARTED'}</span><small>Started {when(match.started)}</small></div>
     <HeadToHead match={match} board={board} ranked={ranked} name={name}/>
-    <div className="live-screen fb-screen"><img ref={image} alt={`Live pool table: ${name(match.a)} versus ${name(match.b)}`}/></div>
-    <p className="fb-live-status" role="status">{status}</p>
+    <div className="live-screen fb-screen"><img ref={match.external ? undefined : image} src={match.external ? '/api/stream-server/video' : undefined}
+      alt={`Live pool table: ${name(match.a)} versus ${name(match.b)}`}/></div>
+    <p className="fb-live-status" role="status">{match.external ? 'Live from the table camera' : status}</p>
   </>;
 }
 

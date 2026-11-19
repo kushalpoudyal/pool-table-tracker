@@ -79,6 +79,17 @@ def roster():
     return people, img
 
 
+def only(people, sheet, names):
+    """The roster cut down to these names: their descriptions and their tiles of the sheet, or ([], None)."""
+    wanted = {n.casefold() for n in names}
+    keep = [i for i, p in enumerate(people) if p["name"].casefold() in wanted]
+    if not keep:
+        return [], None
+    w, h = TILE
+    tiles = [sheet[i // PER_ROW * h:(i // PER_ROW + 1) * h, i % PER_ROW * w:(i % PER_ROW + 1) * w] for i in keep]
+    return [people[i] for i in keep], np.hstack(tiles)
+
+
 def cached_names():
     """Names in the roster as last built, without building it (for the page)."""
     index = CACHE / "roster.json"

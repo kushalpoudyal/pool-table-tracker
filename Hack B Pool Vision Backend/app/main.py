@@ -4,7 +4,8 @@ Run from this folder:  python -m app.main
 Then open http://127.0.0.1:8000 (live phone) or http://127.0.0.1:8000/sandbox (uploaded video).
 
 Rackroom (Hack B Pool API / Client) talks to the live camera through the plain routes at the end of
-this file: GET /status, GET /video, POST /game (two names in break order), GET /game, POST /game/end.
+this file: GET /status, GET /video, POST /game (two names in break order), GET /watch (the score for
+its Watch tab), GET /game (everything), POST /game/end.
 """
 import asyncio
 import json
@@ -140,6 +141,12 @@ def game(name: str):
     return get(name).observer.status()
 
 
+@app.get("/{name}/watch")
+def watch(name: str):
+    """The score for a Watch screen: players (group, potted, left, at the table), winner, match, latest moments."""
+    return get(name).observer.summary()
+
+
 @app.post("/{name}/game")
 def new_game(name: str, body: dict):
     """Start a new game with these player names (the first one breaks), and optionally the caller's match id."""
@@ -212,6 +219,11 @@ async def live_video():
 @app.get("/game")
 def live_game():
     return game("live")
+
+
+@app.get("/watch")
+def live_watch():
+    return watch("live")
 
 
 @app.post("/game")
