@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ValidationError
 from starlette.background import BackgroundTask
 
+import stats
 from tracker import EXTERNAL, db, recorder_status
 
 router = APIRouter(prefix="/api/stream-server")
@@ -68,12 +69,14 @@ def game():
 def start_game(game: StreamGame, request: Request):
     """Start a game on the external camera: a Rackroom match for the leaderboard, and the two names
     (Player A breaks) handed to the stream server, which keeps the score from there. It also gets where to
-    send the final score when it sees the game decided (POST .../result, with this match's recorder key)."""
+    send the final score when it sees the game decided (POST .../result, with this match's recorder key),
+    and both players' records for its commentator (stats.py; a stream server that ignores them is fine)."""
     url = server_url()
     with db() as c:
         names = dict(c.execute("SELECT id,name FROM players WHERE id IN (?,?)", (game.a, game.b)).fetchall())
         if game.a == game.b or len(names) != 2:
             raise HTTPException(422, "Choose two different registered players.")
+        records = stats.for_game(c, game.a, game.b)  # before the new match: it isn't counted anyway
         token = secrets.token_urlsafe(32)
         match_id = c.execute("INSERT INTO matches(a,b,mime,token) VALUES(?,?,?,?)",
                              (game.a, game.b, EXTERNAL, token)).lastrowid
@@ -81,7 +84,8 @@ def start_game(game: StreamGame, request: Request):
     report = {"url": f"{request.base_url}api/stream-server/game/{match_id}/result", "token": token}
     try:
         with httpx.Client(timeout=5) as client:
-            client.post(url + "/game", json={"players": players, "match": match_id, "report": report}).raise_for_status()
+            client.post(url + "/game", json={"players": players, "match": match_id, "report": report,
+                                         "stats": records}).raise_for_status()
     except httpx.HTTPError as exc:
         with db() as c:
             c.execute("UPDATE matches SET status='interrupted' WHERE id=?", (match_id,))
@@ -137,6 +141,26 @@ def result(match_id: int, final: dict, x_recorder_key: str = Header()):
     """The end-game trigger: the stream server saw the game decided and sends its final score, recorded like
     Stop game's."""
     return record(match_id, open_game(match_id, x_recorder_key), final)
+
+
+@router.get("/commentary/{line_id}/audio")
+def commentary_audio(line_id: int):
+    """One commentator line as speech (MP3), streamed from the stream server as it is made. 404 when it has
+    none (no voice key there, an old line): the browser then speaks the line's text itself."""
+    url = server_url()
+    try:
+        with ExitStack() as stack:
+            client = stack.enter_context(httpx.Client(timeout=httpx.Timeout(5, read=15)))
+            upstream = stack.enter_context(client.stream("GET", f"{url}/commentary/{line_id}/audio"))
+            if upstream.status_code == 404:
+                raise HTTPException(404, "No audio for this line.")
+            upstream.raise_for_status()
+            resources = stack.pop_all()
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, "Cannot reach the commentary audio.") from exc
+    return StreamingResponse(upstream.iter_raw(), media_type="audio/mpeg",
+                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+                             background=BackgroundTask(resources.close))
 
 
 @router.get("/video")

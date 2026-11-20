@@ -109,7 +109,10 @@ class StreamServerGameTests(unittest.TestCase):
     def test_game_is_recorded_with_the_stream_servers_winner(self):
         game = self.client.post("/api/stream-server/game", json={"a": self.a, "b": self.b}).json()
         report = {"url": f"http://testserver/api/stream-server/game/{game['id']}/result", "token": game["token"]}
-        self.assertEqual(self.sent, [("POST", "/game", {"players": ["Ada", "Sam"], "match": game["id"], "report": report})])
+        zero = {"played": 0, "won": 0, "streak": None, "best_streak": 0, "avg_potted": None, "last_played": None}
+        self.assertEqual(self.sent, [("POST", "/game", {
+            "players": ["Ada", "Sam"], "match": game["id"], "report": report,
+            "stats": {"Ada": zero, "Sam": zero, "head_to_head": {"played": 0, "wins": {"Ada": 0, "Sam": 0}}}})])
         self.final = {"match": game["id"], "winner": "sam", "players": [{"name": "Sam", "potted": ["9", "8"]}]}
         url = f"/api/stream-server/game/{game['id']}/end"
         self.assertEqual(self.client.post(url, headers={"X-Recorder-Key": "wrong"}).status_code, 403)
@@ -144,6 +147,68 @@ class StreamServerGameTests(unittest.TestCase):
                 transport=httpx.MockTransport(lambda request: httpx.Response(503)), **kwargs)):
             self.assertEqual(self.client.post("/api/stream-server/game", json={"a": self.a, "b": self.b}).status_code, 502)
         self.assertEqual(self.client.get("/api/board").json()["matches"][0]["status"], "interrupted")
+
+
+class StreamServerStatsTests(unittest.TestCase):
+    """The players' records sent with start-game, for the stream server's commentator."""
+
+    def play(self, a, b, winner, potted=None):
+        """One game on the camera; winner: a player id (counted) or None (interrupted)."""
+        game = self.client.post("/api/stream-server/game", json={"a": a, "b": b}).json()
+        names = {self.a: "Ada", self.b: "Sam", self.c: "Kit"}
+        final = {"match": game["id"], "winner": names.get(winner),
+                 "players": [{"name": n, "potted": balls} for n, balls in (potted or {}).items()]}
+        self.client.post(f"/api/stream-server/game/{game['id']}/result", json=final,
+                         headers={"X-Recorder-Key": game["token"]})
+
+    def stats_sent(self, a, b):
+        self.client.post("/api/stream-server/game", json={"a": a, "b": b})
+        return self.sent[-1][2]["stats"]
+
+    def setUp(self):
+        StreamServerGameTests.setUp(self)  # the same stubbed camera and fresh database, without its tests
+        self.c = self.client.post("/api/players", json={"name": "Kit"}).json()["id"]
+
+    def test_records_streaks_and_head_to_head_from_counted_games(self):
+        a, b, c = self.a, self.b, self.c
+        self.play(a, b, a, {"Ada": ["1", "2", "8"], "Sam": ["9"]})
+        self.play(a, c, c)
+        self.play(b, a, a, {"ada": ["3"], "Sam": []})  # names match whatever the case
+        self.play(a, b, None)  # interrupted: never counted
+        self.play(a, c, a)
+        self.play(b, a, b)
+        stats = self.stats_sent(a, b)
+        ada, sam = stats["Ada"], stats["Sam"]
+        self.assertEqual((ada["played"], ada["won"], ada["streak"], ada["best_streak"]), (5, 3, {"type": "L", "n": 1}, 2))
+        self.assertEqual((sam["played"], sam["won"], sam["streak"], sam["best_streak"]), (3, 1, {"type": "W", "n": 1}, 1))
+        self.assertEqual(ada["avg_potted"], 2.0)  # 3 and 1, from the two stored final scores naming her
+        self.assertEqual(sam["avg_potted"], 0.5)
+        self.assertIsNotNone(ada["last_played"])
+        self.assertEqual(stats["head_to_head"], {"played": 3, "wins": {"Ada": 2, "Sam": 1}})
+
+    def test_the_watch_passthrough_keeps_the_lines(self):
+        lines = [{"id": 3, "text": "Ada pots the 5.", "priority": "normal", "game": "g", "audio": True}]
+        self.final = {}
+        def respond(request):
+            return httpx.Response(200, json={"active": True, "players": [], "events": [], "lines": lines})
+        with patch("remote_stream.httpx.Client", side_effect=lambda **kwargs: self.client_type(
+                transport=httpx.MockTransport(respond), **kwargs)):
+            self.assertEqual(self.client.get("/api/stream-server/game").json()["lines"], lines)
+
+    def test_commentary_audio_is_proxied(self):
+        def respond(request):
+            if request.url.path == "/commentary/3/audio":
+                class Clip(httpx.SyncByteStream):
+                    def __iter__(self):
+                        yield b"ID3"
+                        yield b"mp3"
+                return httpx.Response(200, stream=Clip(), headers={"content-type": "audio/mpeg"})
+            return httpx.Response(404)
+        with patch("remote_stream.httpx.Client", side_effect=lambda **kwargs: self.client_type(
+                transport=httpx.MockTransport(respond), **kwargs)):
+            audio = self.client.get("/api/stream-server/commentary/3/audio")
+            self.assertEqual((audio.status_code, audio.content, audio.headers["content-type"]), (200, b"ID3mp3", "audio/mpeg"))
+            self.assertEqual(self.client.get("/api/stream-server/commentary/4/audio").status_code, 404)
 
 
 class TrackerTests(unittest.TestCase):
