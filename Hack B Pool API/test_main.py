@@ -131,6 +131,18 @@ class StreamServerGameTests(unittest.TestCase):
         stop = self.client.post(f"/api/stream-server/game/{game['id']}/end", headers={"X-Recorder-Key": game["token"]})
         self.assertEqual(stop.status_code, 409)  # already recorded by the trigger
 
+    def test_winner_can_be_corrected_by_the_device_that_ran_the_game(self):
+        game = self.client.post("/api/stream-server/game", json={"a": self.a, "b": self.b}).json()
+        url, key = f"/api/matches/{game['id']}/winner", {"X-Recorder-Key": game["token"]}
+        self.assertEqual(self.client.post(url, json={"winner": self.b}, headers=key).status_code, 409)  # still on
+        self.final = {"match": game["id"], "winner": None, "events": []}
+        self.client.post(f"/api/stream-server/game/{game['id']}/end", headers=key)  # no winner seen
+        self.assertEqual(self.client.post(url, json={"winner": self.b}, headers={"X-Recorder-Key": "x"}).status_code, 403)
+        self.assertEqual(self.client.post(url, json={"winner": 999}, headers=key).status_code, 422)
+        self.assertEqual(self.client.post(url, json={"winner": self.b}, headers=key).json()["winner"], self.b)
+        match = self.client.get("/api/board").json()["matches"][0]
+        self.assertEqual((match["status"], match["winner"]), ("complete", self.b))
+
     def test_game_without_a_winner_is_not_counted(self):
         game = self.client.post("/api/stream-server/game", json={"a": self.a, "b": self.b}).json()
         self.final = {"match": game["id"], "winner": None, "players": []}

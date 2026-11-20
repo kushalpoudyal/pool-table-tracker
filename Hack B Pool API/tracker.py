@@ -172,6 +172,20 @@ def close(match_id: int, outcome: Literal["finish", "discard"], x_recorder_key: 
     return {"status": status}
 
 
+@router.post("/matches/{match_id}/winner")
+def correct_winner(match_id: int, verdict: Verdict, x_recorder_key: str = Header()):
+    """Correct a finished game's result (the table camera or the analyzer got it wrong, or saw no winner). Only
+    the device that ran the game holds its recorder key; the game then counts with this winner."""
+    with db() as c:
+        if recorder_status(c, match_id, x_recorder_key) not in ("complete", "interrupted"):
+            raise HTTPException(409, "Only a finished game's winner can be corrected.")
+        updated = c.execute("UPDATE matches SET status='complete',winner=? WHERE id=? AND ? IN (a,b)",
+                            (verdict.winner, match_id, verdict.winner))
+        if not updated.rowcount:
+            raise HTTPException(422, "The winner must be one of the two players.")
+    return {"status": "complete", "winner": verdict.winner}
+
+
 def authorize_worker(key):
     secret = os.getenv("POOL_ANALYZER_KEY")
     if not secret or not secrets.compare_digest(secret, key):

@@ -15,7 +15,10 @@ descriptions carry only those players.
 
 The app keeps the score: a pocketed ball counts once, and comes off the score only when a later look
 clearly sees it back on the table (a mistake corrected, e.g. a ball that was only hidden by an arm).
-When two looks in a row name the winner, the game is over: looks stop and the final score goes to
+After each shot a table check counts the balls on the table from full-size photos, and a ball it can't
+find counts as potted (rather a false pot than a missed one). A player who pots their own ball stays at
+the table; any other change of player takes two looks in a row. When the 8 goes down, a final check
+decides the winner by the rules from the balls really left; then looks stop and the final score goes to
 whoever started the game (Rackroom records it).
 """
 import json
@@ -51,7 +54,7 @@ What you remember so far (JSON): {memory}
 Your last looks: {recent}
 
 The {stitched} is {n} photos taken about one second apart, numbered 1 to {n} in order (left to right, top row first), covering {t0}-{t1} s of the game.{overlap}
-Look for any ball dropping into a pocket: it is on the table in one photo and gone in a later one (also compare photo 1 with the balls you remember on the table). A ball sitting in the jaws has not dropped. Only count a ball as potted if you see it go in, or you can clearly see its pocket and it is gone; a ball hidden by an arm, a body or the edge of the photo is not potted. Work out who is at the table and shooting, and whether a shot broke the rules. Report only what the photos show: never guess a pot, a foul or a winner.
+Look for any ball dropping into a pocket: it is on the table in one photo and gone in a later one (also compare photo 1 with the balls you remember on the table). A ball sitting in the jaws has not dropped. Check every ball you remember on the table: one that is gone and that you can't find anywhere on the table has been potted, even if you didn't see it drop, so report it. Work out who is at the table and shooting, and whether a shot broke the rules.
 Reply with compact JSON only, keys exactly, "shooting" first:
 {{"shooting": one of {names} or null,
  "playing": [the names of everyone playing, from {names}],
@@ -63,6 +66,13 @@ Reply with compact JSON only, keys exactly, "shooting" first:
  "on_table": ["balls you can see on the table now"],
  "winner": null, or one of {names} once the rules decide the game,
  "summary": "one line of live commentary: what happened in these seconds, and who is ahead"}}"""
+
+CHECK_PROMPT = """Photos of a pool table a second or more apart: the end of the last shot, and now. A ball hidden by a person or a cue in one photo may show in the other.
+List every ball on the table (a ball sitting in a pocket's jaws is still on the table). Look at each ball closely: a solid is all one colour, a stripe is white with a coloured band (from above it can look mostly white or mostly colour), the 8 is black, the cue ball is plain white. Solids: 1 yellow, 2 blue, 3 red, 4 purple, 5 orange, 6 green, 7 maroon; stripes 9-15 have the same colours in that order.
+Say also whether every part of the playing surface is in view in at least one photo (not cut off, nobody covering it).
+JSON only: {"balls": [["number if readable, else null", "colour", "solid|stripe|eight|cue"]], "whole_table": true or false}"""
+NUMBERS = {"solid": range(1, 8), "stripe": range(9, 16)}
+
 
 def stitch(frames):
     """[(t, frame)] -> one image: numbered, timestamped tiles in a 3 x 2 grid."""
@@ -109,7 +119,10 @@ class Observer:
             self.frames, self.previous = [], None  # previous: last frame of the last look, photo 1 of the next
             self.started_at = None  # camera time of the first frame of this game
             self.guest_looks = 0  # looks so far with a provisional Guest among the players
-            self.claimed = None  # the winner the last look named, waiting for the next look to agree
+            self.turn_claim = None  # a new player at the table named by the last look, waiting for the next look to agree
+            self.look_shooter = self.memory["shooting"]  # who was at the table when the current look was sent
+            self.decide = False  # the 8 is down or a look says the game is over: the final check decides the winner
+            self.eight_foul = False  # the look that saw the 8 go down also saw a foul
             self.report = report  # not in memory: memory goes to the LLM and the token must not
             self.active = True
 
@@ -133,11 +146,12 @@ class Observer:
                 if self.frames and t - self.frames[-1][0] > 0.3:
                     self.frames.append((t, self._crop(frame)))
                 if len(self.frames) >= 2:
-                    self._send()
+                    self._send(settled=True)
 
-    def _send(self):
-        """Queue the frames gathered so far as one look (caller holds the lock)."""
-        self.jobs.put((self.game_id, ([self.previous] if self.previous else []) + self.frames))
+    def _send(self, settled=False):
+        """Queue the frames gathered so far as one look (caller holds the lock). settled: a shot just ended,
+        so the balls are counted after the look."""
+        self.jobs.put((self.game_id, ([self.previous] if self.previous else []) + self.frames, settled))
         self.previous, self.frames = self.frames[-1], []
 
     def _crop(self, frame):
@@ -166,12 +180,16 @@ class Observer:
 
     def _work(self):
         while True:
-            game_id, frames = self.jobs.get()
+            game_id, frames, settled = self.jobs.get()
             if game_id != self.game_id:
                 continue  # a new game started meanwhile
             self.busy = True
             try:
                 self._look(frames)
+                if self.active and self.decide:
+                    self._final_check()
+                elif self.active and settled:
+                    self._check_table()
                 if self.memory["winner"] and self.active:
                     self._finish()
             except Exception as e:
@@ -216,9 +234,13 @@ class Observer:
         started = time.time()
         first = {}
 
+        self.look_shooter = m["shooting"]
+
         def early(shooting):  # who is at the table, ~1.3 s in: show it before the rest of the answer arrives
             first["took"] = round(time.time() - started, 1)
-            if shooting in (names if identifying else m["players"]):
+            # a different player shows only when the last look already named them (two looks in a row)
+            if shooting in (names if identifying else m["players"]) and m["shooting"] in (None, shooting) \
+                    or shooting == self.turn_claim:
                 m["shooting"] = shooting
 
         a = llm.stream_json(prompt, images, "shooting", early)
@@ -268,10 +290,14 @@ class Observer:
                 notes.append(f"ignored a {kind}: all {LIMITS[kind]} already down")
                 continue
             counts[kind] = counts.get(kind, 0) + 1
-            new.append({"ball": ball, "kind": kind, "pocket": pocket, "by": by if by in players else m["shooting"]})
+            new.append({"ball": ball, "kind": kind, "pocket": pocket,
+                        "by": by if by in players else self.look_shooter or m["shooting"]})
         m["potted"] += new
         if a.get("foul"):
             notes.append(f"foul: {a['foul']}")
+        if any(b["kind"] == "eight" for b in new):  # the final check decides who won, from the balls really left
+            self.decide, self.eight_foul = True, bool(a.get("foul")) or any(
+                (list(x) + [None] * 2)[1] == "cue" for x in a.get("potted") or [])
         for p, g in (a.get("groups") or {}).items():
             if p in players and g in ("solids", "stripes") and m["groups"][p] is None:
                 m["groups"][p] = g
@@ -281,15 +307,26 @@ class Observer:
         for p, look in (a.get("looks") or {}).items():
             if p in players and look:
                 m["looks"][p] = look  # today's clothes: once every player has them, the roster sheet stops
-        if a.get("shooting") in players:
-            m["shooting"] = a["shooting"]
+        # who is at the table: a legal pot keeps the shooter there; any other change of player takes two looks in
+        # a row (one look often catches the other player walking round the table, or misses a pot)
+        shooter, said = self.look_shooter, a.get("shooting")
+        group = (m["groups"].get(shooter) or "")[:-1]
+        potted_own = any(b["by"] == shooter and b["kind"] in ((group,) if group else ("solid", "stripe")) for b in new)
+        if shooter not in players:
+            m["shooting"] = said if said in players else m["shooting"]
+        elif potted_own and not a.get("foul"):
+            m["shooting"], self.turn_claim = shooter, None
+        elif said in players and said != shooter:
+            if said == self.turn_claim:
+                m["shooting"], self.turn_claim = said, None
+            else:
+                m["shooting"], self.turn_claim = shooter, said
+        else:
+            m["shooting"], self.turn_claim = shooter, None
         if a.get("on_table"):
             m["on_table"] = a["on_table"]
-        # a winner ends the game, so it takes two looks in a row: one misread 8 must not end a real game
-        claim = a.get("winner") if a.get("winner") in players else None
-        if claim and claim == self.claimed:
-            m["winner"] = claim
-        self.claimed = claim
+        if a.get("winner") in players:  # a look says the game is over: the final check decides who won
+            self.decide = True
         return {"summary": a.get("summary"), "potted": new, "notes": notes, "shooting": m["shooting"]}
 
     def _rename(self, old, new):
@@ -302,6 +339,83 @@ class Observer:
                 b["by"] = new
         if m["shooting"] == old:
             m["shooting"] = new
+        self.look_shooter = new if self.look_shooter == old else self.look_shooter
+        self.turn_claim = new if self.turn_claim == old else self.turn_claim
+
+    def _table_now(self, whole=False):
+        """A count of the balls on the table from full-size photos: the end of the last look and now (a ball hidden
+        in one may show in the other). {"solid", "stripe", "eight", "cue": count, "seen": numbers read}; with
+        whole=True, None when part of the table is out of view."""
+        _, frame = self.camera.latest()
+        photos = ([self.previous[1]] if self.previous else []) + ([self._crop(frame)] if frame is not None else [])
+        a = llm.ask_json(CHECK_PROMPT, [llm.image_part(p, 1600) for p in photos])
+        with self.log.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"game": self.game_id, "time": time.strftime("%H:%M:%S"), "table_check": a}) + "\n")
+        if whole and not a.get("whole_table"):
+            return None
+        balls = [(list(b) + [None] * 3)[:3] for b in a.get("balls") or []]
+        count = {k: sum(b[2] == k for b in balls) for k in ("solid", "stripe", "eight", "cue")}
+        return {**count, "seen": {str(b[0]) for b in balls if b[0] is not None}}
+
+    def _missed_pots(self, c):
+        """Counts every ball the table check can't find as potted (pots the looks missed; Kushal: rather a false pot
+        than a missed one). A missing ball goes to the player whose group it is, else to the shooter."""
+        m, notes = self.memory, []
+        for kind in ("solid", "stripe"):
+            down = [b for b in m["potted"] if b["kind"] == kind]
+            gone = LIMITS[kind] - len(down) - c[kind]
+            if gone <= 0:
+                continue
+            missing = [str(n) for n in NUMBERS[kind] if str(n) not in {str(b["ball"]) for b in down} | c["seen"]]
+            owner = next((p for p, g in m["groups"].items() if g == kind + "s"), None)
+            for i in range(gone):
+                m["potted"].append({"ball": missing[i] if len(missing) == gone else kind, "kind": kind,
+                                    "pocket": None, "by": owner or m["shooting"]})
+            notes.append(f"table check: {gone} {kind}{'s' if gone > 1 else ''} gone from the table, counted as potted")
+        return notes
+
+    def _check_table(self):
+        """After each shot: count the balls on the table and add the pots the looks missed, even if part of the
+        table is covered (Kushal: rather a false pot than a missed one). A missing 8 means the game may be over,
+        which the final check decides."""
+        c = self._table_now()
+        self.feed[0]["notes"] += self._missed_pots(c)
+        if not c["eight"] and not any(b["kind"] == "eight" for b in self.memory["potted"]):
+            self._final_check()
+
+    def _final_check(self):
+        """The 8 is down, or a look says the game is over. Decide who won by the rules from the balls really left on
+        the table, not from the score kept so far (a missed pot made a legal 8 look like a loss): the player who
+        potted the 8 wins if none of their group is left and that shot was not a foul; else the other player wins."""
+        self.decide = False
+        m = self.memory
+        c = self._table_now(whole=True) or (time.sleep(2) or self._table_now(whole=True))
+        if c is None:  # someone is in the way: try again after the next look
+            self.decide = True
+            self.feed[0]["notes"].append("final check: couldn't see the whole table, checking again")
+            return
+        if c["eight"]:  # the 8 is still on the table: no game over
+            m["potted"] = [b for b in m["potted"] if b["kind"] != "eight"]
+            self.feed[0]["notes"].append("final check: the 8 is still on the table, the game goes on")
+            return
+        notes = self._missed_pots(c)
+        eight = next((b for b in m["potted"] if b["kind"] == "eight"), None)
+        if eight is None:  # gone without a look seeing it drop
+            eight = {"ball": "8", "kind": "eight", "pocket": None, "by": m["shooting"]}
+            m["potted"].append(eight)
+        shooter = eight["by"] if eight["by"] in m["players"] else m["shooting"]
+        group = (m["groups"].get(shooter) or "")[:-1]
+        if not group:  # groups never recorded: the shooter's group is the one cleared, if just one is
+            cleared = [k for k in ("solid", "stripe") if not c[k]]
+            group = cleared[0] if len(cleared) == 1 else ""
+        left = c[group] if group else None
+        others = [p for p in m["players"] if p != shooter]
+        won = bool(group) and left == 0 and not self.eight_foul
+        m["winner"] = shooter if won else (others[0] if others else None)
+        notes.append(f"final check: {shooter} potted the 8 with "
+                     + (f"{left} {group}{'' if left == 1 else 's'} left" if group else "no group cleared")
+                     + (" on a foul" if self.eight_foul else "") + f": {m['winner']} wins")
+        self.feed[0]["notes"] += notes
 
     def _finish(self):
         """The game is decided: stop looking and send the final score to whoever started the game. If sending

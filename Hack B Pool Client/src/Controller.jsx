@@ -14,6 +14,7 @@ export default function Controller({board, add, refresh, PlayerEntry}) {
   // external: the stream server's table camera is configured. It films and scores the game, so this page
   // skips the browser camera: it starts the game there, shows its feed and score, and records its winner.
   const [external,setExternal]=useState(false), [score,setScore]=useState(null);
+  const [correcting,setCorrecting]=useState(false);
   const canRecord=window.isSecureContext && !!navigator.mediaDevices?.getUserMedia && !!window.MediaRecorder;
   const liveCameraUrl=import.meta.env.VITE_LIVE_CAMERA_URL;
   const stream=useRef(null), video=useRef(null), recorder=useRef(null), current=useRef(null);
@@ -93,6 +94,15 @@ export default function Controller({board, add, refresh, PlayerEntry}) {
       refresh(); setError(''); setStage('done');
     } catch(e) {setError(`Could not record the game: ${e.message}`);setStage('retry');}
   }
+  async function correctWinner(id) {  // the camera or the analyzer got the result wrong: this device fixes it
+    setCorrecting(true);
+    try {
+      await api(`matches/${gameId}/winner`,{method:'POST',body:JSON.stringify({winner:id}),
+        headers:{'Content-Type':'application/json','X-Recorder-Key':current.current.token}});
+      refresh(); setError('');
+    } catch(e) {setError(`Could not correct the result: ${e.message}`);}
+    finally {setCorrecting(false);}
+  }
   async function start() {
     if(external) return startExternal();
     setStage('permission'); setError('');
@@ -159,6 +169,10 @@ export default function Controller({board, add, refresh, PlayerEntry}) {
         {liveCameraUrl && !window.isSecureContext && <a className="btn primary wide" href={liveCameraUrl}>Open live camera</a>}</>}
     </>:stage==='done'?<><p className="kicker">GAME {gameId} &nbsp; / &nbsp; CAPTURE COMPLETE</p>
       <h2>{finished?.winner?`${name(finished.winner)} won`:current.current?.external?'No winner recorded':'Awaiting analysis'}</h2><p>{finished?.winner?'The standings have been updated.':current.current?.external?'The table camera did not see the game finish, so it was not counted.':'The server has the video. The winner will appear here and on the scoreboard when the analyzer returns a result.'}</p>
+      {finished && ['complete','interrupted'].includes(finished.status) && current.current?.token && <div className="correct-result">
+        <small>Wrong result? Set the winner:</small>
+        {[finished.a,finished.b].map(id=><button key={id} className="btn ghost" disabled={correcting || finished.winner===id} onClick={()=>correctWinner(id)}>{name(id)} won</button>)}
+      </div>}
       <a className="btn primary wide" href="/">View scoreboard</a><button className="text-btn" onClick={()=>{A('');B('');setStage('select');}}>Set up another game</button>
     </>:<><p className="kicker">{stage==='record'?'LIVE STREAMING':'MATCH CAPTURE'}</p><h2>{name(a)} <em>vs</em> {name(b)}</h2>
       {['record','starting'].includes(stage)&&<div className="camera">{external?<img src="/api/stream-server/video" alt="Live table camera"/>:<video ref={video} playsInline muted autoPlay/>}<div className="camera-guides" aria-hidden="true"><span/><span/><span/><span/></div>{stage==='record'&&<span className="rec">LIVE {Math.floor(seconds/60)}:{String(seconds%60).padStart(2,'0')}</span>}</div>}
