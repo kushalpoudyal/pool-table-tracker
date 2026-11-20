@@ -1,7 +1,30 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api';
+import { commentaryPlayer, createLineTracker } from './commentary';
 
-export function Score({game}) {
+// The commentator: plays each new line once (streamed audio, or the browser's voice), with a mute switch
+// and the tap that browsers need before a page may make sound. speakExisting: the page started this game
+// (Controller), so its first lines are new too; otherwise the lines already there on load stay quiet.
+function Commentary({lines, speakExisting}) {
+  const player=commentaryPlayer();
+  const tracker=useRef(null);
+  if(!tracker.current) tracker.current=createLineTracker({speakExisting});
+  const [, redraw]=useState(0);
+  useEffect(()=>player.subscribe(()=>redraw(n=>n+1)),[player]);
+  useEffect(()=>{ for(const line of tracker.current.fresh(lines)) player.say(line); },[lines,player]);
+  if(!lines) return null;   // an older stream server: no commentary
+  return <div className="commentary">
+    <div className="commentary-controls">
+      {!player.unlocked && !player.muted && <button className="btn primary" onClick={()=>player.unlock()}>🔊 Tap to turn on commentary</button>}
+      <button className="text-btn" aria-pressed={player.muted} onClick={()=>player.setMuted(!player.muted)}>
+        {player.muted?'Commentary muted · unmute':'Mute commentary'}</button>
+    </div>
+    {lines.length>0 && <ol className="commentary-lines" aria-live="polite">{lines.slice(-3).map(l=>
+      <li key={l.id} className={l.priority}>{l.text}</li>)}</ol>}
+  </div>;
+}
+
+export function Score({game, speakExisting=false}) {
   if(!game?.configured || !game.players?.length) return null;
   return <div className="remote-score" aria-live="polite">
     {game.winner && <p className="remote-winner">{game.winner} wins</p>}
@@ -10,6 +33,7 @@ export function Score({game}) {
       <span>{p.group?`${p.group} · ${p.left} left`:'Open table'}</span>
       <span className="potted">{p.potted.length?`Potted ${p.potted.join(', ')}`:'Nothing potted'}</span>
     </li>)}</ul>
+    <Commentary lines={game.lines} speakExisting={speakExisting}/>
     {game.events.length>0 && <ol className="remote-events">{game.events.slice(0,4).map((e,i)=><li key={i}>
       {e.summary}{e.notes.length>0 && <em> · {e.notes.join('; ')}</em>}</li>)}</ol>}
   </div>;

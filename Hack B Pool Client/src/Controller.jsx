@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api, post } from './api';
 import { Score } from './RemoteFeed';
+import { commentaryPlayer } from './commentary';
 
 function closeMatch(game, outcome) {
   return api(`matches/${game.id}/close?outcome=${outcome}`,{method:'POST',headers:{'X-Recorder-Key':game.token}});
@@ -79,6 +80,7 @@ export default function Controller({board, add, refresh, PlayerEntry}) {
   },[stage,gameId,external]);
 
   async function startExternal() {
+    commentaryPlayer().unlock();   // inside the Start tap: lets the phone play the commentary from here on
     setStage('starting'); setError(''); setScore(null);
     try {
       const game=await post('stream-server/game',{a:Number(a),b:Number(b)});
@@ -163,7 +165,7 @@ export default function Controller({board, add, refresh, PlayerEntry}) {
     </>:<><p className="kicker">{stage==='record'?'LIVE STREAMING':'MATCH CAPTURE'}</p><h2>{name(a)} <em>vs</em> {name(b)}</h2>
       {['record','starting'].includes(stage)&&<div className="camera">{external?<img src="/api/stream-server/video" alt="Live table camera"/>:<video ref={video} playsInline muted autoPlay/>}<div className="camera-guides" aria-hidden="true"><span/><span/><span/><span/></div>{stage==='record'&&<span className="rec">LIVE {Math.floor(seconds/60)}:{String(seconds%60).padStart(2,'0')}</span>}</div>}
       {stage==='record'&&<><p>{external?'Game started. The table camera keeps the score. Anyone can watch this game in the Watch games tab.':'Game started. Sending video to the local Python server. Anyone can watch this game in the Watch games tab. Keep this page open and your phone unlocked.'}</p>
-        {external&&<Score game={score}/>}
+        {external&&<Score game={score} speakExisting/>}
         <p>Viewer link: <a href={`/watch#game-${gameId}`} target="_blank" rel="noreferrer">Watch game {gameId}</a></p>
         {liveError&&<p className="alert" role="alert">{liveError}</p>}
         <button className="btn stop wide" onClick={()=>{if(external) return stopExternal();setStage('saving');recorder.current.stop();}}>■ &nbsp; Stop game &amp; submit</button></>}

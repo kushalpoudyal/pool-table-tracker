@@ -799,6 +799,11 @@ tbody tr.top-1 { background: linear-gradient(90deg, #d9b56c12, transparent 60%);
 .remote-score li.at-table { border-color: #f2bb6855; }
 .remote-score .potted { color: var(--accent); }
 .remote-winner { color: var(--win); font-weight: 700; }
+.commentary { display: grid; gap: 8px; }
+.commentary-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.commentary-lines { display: grid; gap: 4px; margin: 0; padding-left: 20px; font-size: .92rem; }
+.commentary-lines .critical { color: var(--text); font-weight: 600; }
+.commentary-lines .colour { color: var(--muted); font-style: italic; }
 .remote-events { display: grid; gap: 4px; margin: 0; padding-left: 20px; color: var(--muted); font-size: .88rem; }
 .steps {
   display: grid;
