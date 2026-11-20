@@ -15,7 +15,7 @@ export default function Controller({board, add, refresh, PlayerEntry}) {
   // external: the stream server's table camera is configured. It films and scores the game, so this page
   // skips the browser camera: it starts the game there, shows its feed and score, and records its winner.
   const [external,setExternal]=useState(false), [score,setScore]=useState(null);
-  const [correcting,setCorrecting]=useState(false);
+  const [correcting,setCorrecting]=useState(false), [reason,setReason]=useState('');
   const canRecord=window.isSecureContext && !!navigator.mediaDevices?.getUserMedia && !!window.MediaRecorder;
   const liveCameraUrl=import.meta.env.VITE_LIVE_CAMERA_URL;
   const stream=useRef(null), video=useRef(null), recorder=useRef(null), current=useRef(null);
@@ -99,9 +99,9 @@ export default function Controller({board, add, refresh, PlayerEntry}) {
   async function correctWinner(id) {  // the camera or the analyzer got the result wrong: this device fixes it
     setCorrecting(true);
     try {
-      await api(`matches/${gameId}/winner`,{method:'POST',body:JSON.stringify({winner:id}),
+      await api(`matches/${gameId}/winner`,{method:'POST',body:JSON.stringify({winner:id,reason}),
         headers:{'Content-Type':'application/json','X-Recorder-Key':current.current.token}});
-      refresh(); setError('');
+      refresh(); setError(''); setReason('');
     } catch(e) {setError(`Could not correct the result: ${e.message}`);}
     finally {setCorrecting(false);}
   }
@@ -172,7 +172,8 @@ export default function Controller({board, add, refresh, PlayerEntry}) {
     </>:stage==='done'?<><p className="kicker">GAME {gameId} &nbsp; / &nbsp; CAPTURE COMPLETE</p>
       <h2>{finished?.winner?`${name(finished.winner)} won`:current.current?.external?'No winner recorded':'Awaiting analysis'}</h2><p>{finished?.winner?'The standings have been updated.':current.current?.external?'The table camera did not see the game finish, so it was not counted.':'The server has the video. The winner will appear here and on the scoreboard when the analyzer returns a result.'}</p>
       {finished && ['complete','interrupted'].includes(finished.status) && current.current?.token && <div className="correct-result">
-        <small>Wrong result? Set the winner:</small>
+        <small>Wrong result? Say why, then set the winner (it goes in the game log):</small>
+        <input aria-label="Reason for the correction" value={reason} onChange={e=>setReason(e.target.value)} maxLength={200} placeholder="e.g. no solids were left when the 8 went in"/>
         {[finished.a,finished.b].map(id=><button key={id} className="btn ghost" disabled={correcting || finished.winner===id} onClick={()=>correctWinner(id)}>{name(id)} won</button>)}
       </div>}
       <a className="btn primary wide" href="/">View scoreboard</a><button className="text-btn" onClick={()=>{A('');B('');setStage('select');}}>Set up another game</button>

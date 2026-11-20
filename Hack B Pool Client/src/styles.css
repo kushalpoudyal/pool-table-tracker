@@ -590,7 +590,7 @@ tbody tr.top-1 { background: linear-gradient(90deg, #d9b56c12, transparent 60%);
 .match small { font: 500 .7rem/1.45 var(--mono); letter-spacing: .08em; }
 .match-details { margin-top: 6px; color: var(--muted); font-size: .82rem; }
 .correct-result { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 14px 0; }
-.correct-result small { flex-basis: 100%; }
+.correct-result small, .correct-result input { flex-basis: 100%; }
 .match-details summary { cursor: pointer; margin-top: 4px; }
 .match-details ol { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
 .match-details time { font: 500 .7rem var(--mono); margin-right: 6px; }

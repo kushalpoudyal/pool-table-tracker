@@ -51,6 +51,11 @@ class Verdict(BaseModel):
     winner: int
 
 
+class Correction(BaseModel):
+    winner: int
+    reason: str = Field("", max_length=200)
+
+
 @router.get("/board")
 def board():
     with db() as c:
@@ -173,17 +178,27 @@ def close(match_id: int, outcome: Literal["finish", "discard"], x_recorder_key: 
 
 
 @router.post("/matches/{match_id}/winner")
-def correct_winner(match_id: int, verdict: Verdict, x_recorder_key: str = Header()):
+def correct_winner(match_id: int, correction: Correction, x_recorder_key: str = Header()):
     """Correct a finished game's result (the table camera or the analyzer got it wrong, or saw no winner). Only
-    the device that ran the game holds its recorder key; the game then counts with this winner."""
+    the device that ran the game holds its recorder key; the game then counts with this winner, and its game
+    log (details) gets a "Correction" moment with the reason."""
     with db() as c:
         if recorder_status(c, match_id, x_recorder_key) not in ("complete", "interrupted"):
             raise HTTPException(409, "Only a finished game's winner can be corrected.")
-        updated = c.execute("UPDATE matches SET status='complete',winner=? WHERE id=? AND ? IN (a,b)",
-                            (verdict.winner, match_id, verdict.winner))
-        if not updated.rowcount:
+        match = c.execute("SELECT a,b,winner FROM matches WHERE id=?", (match_id,)).fetchone()
+        if correction.winner not in (match["a"], match["b"]):
             raise HTTPException(422, "The winner must be one of the two players.")
-    return {"status": "complete", "winner": verdict.winner}
+        names = dict(c.execute("SELECT id,name FROM players WHERE id IN (?,?)", (match["a"], match["b"])).fetchall())
+        c.execute("UPDATE matches SET status='complete',winner=? WHERE id=?", (correction.winner, match_id))
+        row = c.execute("SELECT details FROM match_details WHERE match_id=?", (match_id,)).fetchone()
+        details = json.loads(row["details"]) if row else {"players": [], "events": []}
+        details.setdefault("events", []).insert(0, {  # newest first, like the camera's moments
+            "time": time.strftime("%H:%M:%S"), "potted": [],
+            "summary": f"Correction: {names[correction.winner]} won (was {names.get(match['winner'], 'no winner')})",
+            "notes": [f"reason: {correction.reason.strip() or 'none given'}"]})
+        details["winner"] = names[correction.winner]
+        c.execute("INSERT OR REPLACE INTO match_details(match_id,details) VALUES(?,?)", (match_id, json.dumps(details)))
+    return {"status": "complete", "winner": correction.winner}
 
 
 def authorize_worker(key):

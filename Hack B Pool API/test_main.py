@@ -142,9 +142,12 @@ class StreamServerGameTests(unittest.TestCase):
         self.client.post(f"/api/stream-server/game/{game['id']}/end", headers=key)  # no winner seen
         self.assertEqual(self.client.post(url, json={"winner": self.b}, headers={"X-Recorder-Key": "x"}).status_code, 403)
         self.assertEqual(self.client.post(url, json={"winner": 999}, headers=key).status_code, 422)
-        self.assertEqual(self.client.post(url, json={"winner": self.b}, headers=key).json()["winner"], self.b)
+        fixed = self.client.post(url, json={"winner": self.b, "reason": "no solids were left"}, headers=key)
+        self.assertEqual(fixed.json()["winner"], self.b)
         match = self.client.get("/api/board").json()["matches"][0]
         self.assertEqual((match["status"], match["winner"]), ("complete", self.b))
+        self.assertEqual((match["details"]["events"][0]["summary"], match["details"]["events"][0]["notes"]),
+                         ("Correction: Sam won (was no winner)", ["reason: no solids were left"]))
 
     def test_game_without_a_winner_is_not_counted(self):
         game = self.client.post("/api/stream-server/game", json={"a": self.a, "b": self.b}).json()
