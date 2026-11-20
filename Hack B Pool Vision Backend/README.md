@@ -106,7 +106,7 @@ There's no login, so anyone on the same network can watch the camera.
 
 ## Commentator
 
-`app/commentator.py` (with the fixed wording in `app/calls.py` and the voice in `app/voice.py`) hears
+`app/commentator.py` (with the fixed wording in `app/calls.py`) hears
 every look the observer applies and turns it into lines to be heard on Rackroom's Controller and Watch
 screens.
 
@@ -121,26 +121,23 @@ screens.
   dropped if the game moved on, a critical line went out, it took over 5 s, or it is empty. It is told
   the running game, in-game stats (pots, fouls, scratches, the current run, time since the last pot)
   and the players' records Rackroom sends with `POST /game`, and states nothing beyond them.
-- **Audio:** each line is made into speech here with ElevenLabs Flash v2.5 as soon as it is said and
-  streamed at `GET /commentary/{id}/audio` (MP3). Fixed wording that repeats is made once. Without a
-  voice key, or when a clip fails, the browser speaks the line's text with `speechSynthesis`.
+- **Heard** on Rackroom's Controller and Watch screens, spoken by the browser's `speechSynthesis`
+  (one line at a time, critical first; mute and an iOS tap-to-enable on the page).
 - **Logged** with the looks in `logs/game-<live|sandbox>.jsonl` (`"line": {...}` records).
 - **Cost:** instant lines nothing; colour about 1k input + 30 output tokens a request on Haiku 5.5
-  ($0.10 / $0.50 per 1M); voice about 2,500 characters a game on Flash v2.5.
+  ($0.10 / $0.50 per 1M); speech free (the browser's).
 
 Settings (`.env`, all optional; keys stay on the server):
 
 | Setting | |
 |---|---|
 | `ANTHROPIC_API_KEY` | colour lines; without it, instant lines only |
-| `ELEVENLABS_API_KEY` | server-made speech; without it, browsers speak the text |
-| `ELEVENLABS_VOICE_ID` | the voice (default: ElevenLabs' example voice `JBFqnCBsd6RMkjVDRZzb`) |
 | `COMMENTARY=0` | no lines at all (a silent demo) |
 
 `python -m app.commentator` asks Claude for one real colour line and prints it with the wait.
 
 Tests (no camera, model download or network): `.venv\Scripts\python -m unittest` from this folder.
-They drive the observer with a stub camera, scripted look answers, a fake writer, voice and clock.
+They drive the observer with a stub camera, scripted look answers, a fake writer and a fake clock.
 
 ## Context
 
@@ -156,8 +153,7 @@ Rackroom reaches the live camera through plain routes (the same as `/live/...`):
 | `GET /status` | camera status: `connected`, `source`, `width`, `height`, `fps` (Rackroom's `POOL_STREAM_SERVER` contract) |
 | `GET /video` | the live MJPEG feed with the detection overlay |
 | `POST /game` | start a game: `{"players": ["<breaker>", "<other>"], "match": <Rackroom match id>, "report": {"url", "token"}, "stats": {...}}`; names in break order. `stats` (optional): each player's `played`, `won`, `streak` (`{"type": "W"\|"L", "n"}`), `best_streak`, `avg_potted`, `last_played`, plus `head_to_head` (`played`, `wins` by name), for the commentator. Recognition from photos is skipped, and the photos only map the names to faces. `report`: where to send the final score once the game is decided |
-| `GET /watch` | the score for a Watch screen: `players` (name, group, potted, left, at_table), `winner`, `match`, `events` (latest moments, newest first), `lines` (the commentator's latest 20, oldest first: `{id, text, priority, game, audio}`; see **Commentator**). Rackroom's API forwards it as `/api/stream-server/game` and the Watch tab shows it under the table camera |
-| `GET /commentary/{id}/audio` | one line's speech, MP3, streamed as it is made; 404 without a voice key (the browser speaks the text). Rackroom proxies it as `/api/stream-server/commentary/{id}/audio` |
+| `GET /watch` | the score for a Watch screen: `players` (name, group, potted, left, at_table), `winner`, `match`, `events` (latest moments, newest first), `lines` (the commentator's latest 20, oldest first: `{id, text, priority, game}`; see **Commentator**). Rackroom's API forwards it as `/api/stream-server/game` and the Watch tab shows it under the table camera |
 | `GET /game` | everything: `memory` (players, groups, potted balls with who potted them, who is at the table, winner, match id), `score`, and the feed of looks |
 | `POST /game/end` | stop looking (the live camera costs an LLM look every few seconds while a game is on); returns the final score: the `/watch` fields with every moment of the game |
 
@@ -176,4 +172,4 @@ Rackroom's API also defaults to port 8000: on a shared machine start this one wi
 
 ## Status
 
-Built: phone camera page with live detection + tracking of balls, cues, players and spectators; rule-enforced ball names; LLM observer keeping the score from 5-second stitched looks; 5 s LLM capture; video sandbox (`app/`). Live voice commentator: instant lines, Claude colour and ElevenLabs audio streamed to Rackroom (see **Commentator**).
+Built: phone camera page with live detection + tracking of balls, cues, players and spectators; rule-enforced ball names; LLM observer keeping the score from 5-second stitched looks; 5 s LLM capture; video sandbox (`app/`). Live voice commentator: instant lines and Claude colour, spoken by Rackroom's screens (see **Commentator**).

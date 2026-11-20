@@ -1,7 +1,5 @@
 // The table camera's commentator, heard in the browser. The stream server writes the lines
-// (GET /watch -> lines) and, with a voice key, makes each one into speech that is streamed here
-// (/api/stream-server/commentary/{id}/audio). Without audio, or when a clip fails, the browser's own
-// speechSynthesis says the line instead.
+// (GET /watch -> lines); the browser's own speechSynthesis says them.
 //
 // Ported from Rackroom's ticket #9 speech queue and iOS unlock (tickets-integration).
 //
@@ -57,7 +55,7 @@ export function createLineQueue({
   }
 
   return {
-    // One line from the server: {id, text, priority, audio}.
+    // One line from the server: {id, text, priority}.
     say(input = {}) {
       const { id } = input;
       if (id != null) {
@@ -106,54 +104,36 @@ export function createLineTracker({ speakExisting = false } = {}) {
   };
 }
 
-// A short silent WAV: played inside a tap, it lets iOS Safari (and Chrome's autoplay policy) play the
-// same <audio> element later without one.
-function silentWav() {
-  const samples = 800, bytes = new Uint8Array(44 + samples);
-  const view = new DataView(bytes.buffer);
-  const text = (at, s) => [...s].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
-  text(0, 'RIFF'); view.setUint32(4, 36 + samples, true); text(8, 'WAVEfmt ');
-  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
-  view.setUint32(24, 8000, true); view.setUint32(28, 8000, true); view.setUint16(32, 1, true); view.setUint16(34, 8, true);
-  text(36, 'data'); view.setUint32(40, samples, true); bytes.fill(128, 44);
-  let binary = ''; bytes.forEach(b => { binary += String.fromCharCode(b); });
-  return `data:audio/wav;base64,${btoa(binary)}`;
-}
-
 const MUTE_KEY = 'rackroom.commentary.muted';
 const listeners = new Set();
 let player = null;
 
-// One player per page (one <audio> element, unlocked once), shared by every score on it.
+// One player per page, shared by every score on it. iOS Safari only lets a page speak after it has spoken
+// once from inside a tap, so unlock() must be called synchronously in one (Start game, or "turn on
+// commentary"); until then lines are not spoken.
 export function commentaryPlayer() {
   if (player) return player;
-  const audio = typeof Audio === 'function' ? new Audio() : null;
   const synth = globalThis.speechSynthesis, Utterance = globalThis.SpeechSynthesisUtterance;
-  let unlocked = false, cancelledAt = -Infinity;
-
-  function speak(text, done) {
-    if (!synth || !Utterance) { done(); return; }
-    const utterance = new Utterance(text);
-    utterance.lang = /^en\b/i.test(navigator.language || '') ? navigator.language : 'en-GB';
-    utterance.onend = utterance.onerror = done;
-    player._utterance = utterance;   // Chrome drops the end event of an utterance nothing refers to
-    const wait = cancelledAt + 80 - performance.now();   // Android Chrome swallows a line started right after cancel()
-    setTimeout(() => { synth.resume(); synth.speak(utterance); }, Math.max(0, wait));
-  }
+  const supported = Boolean(synth && Utterance);
+  let unlocked = false, cancelledAt = -Infinity, speakingNow = null, pending = null;
 
   const queue = createLineQueue({
     play(line, done) {
-      if (!line.audio || !audio) { speak(line.text, done); return; }
-      let finished = false;
-      const end = () => { if (!finished) { finished = true; done(); } };
-      audio.onended = end;
-      audio.onerror = () => { if (!finished) { finished = true; speak(line.text, done); } };   // no clip: say it
-      audio.src = `/api/stream-server/commentary/${line.id}/audio`;
-      audio.play().catch(() => audio.onerror?.());
+      if (!supported) { done(); return; }
+      const utterance = new Utterance(line.text);
+      utterance.lang = /^en\b/i.test(navigator.language || '') ? navigator.language : 'en-GB';
+      utterance.onend = utterance.onerror = done;
+      speakingNow = utterance;   // Chrome drops the end event of an utterance nothing refers to
+      clearTimeout(pending);
+      // Android Chrome can swallow an utterance started in the same breath as cancel()
+      pending = setTimeout(() => { synth.resume(); synth.speak(utterance); }, Math.max(0, cancelledAt + 80 - performance.now()));
     },
     stop() {
-      if (audio) { audio.onended = audio.onerror = null; audio.pause(); audio.removeAttribute('src'); audio.load(); }
-      if (synth) { cancelledAt = performance.now(); synth.cancel(); }
+      if (!supported) return;
+      clearTimeout(pending);
+      cancelledAt = performance.now();
+      speakingNow = null;
+      synth.cancel();
     },
   });
 
@@ -163,11 +143,10 @@ export function commentaryPlayer() {
   const changed = () => listeners.forEach(fn => fn());
 
   player = {
+    supported,
     say: line => { if (unlocked) queue.say(line); },
-    // Call synchronously inside a tap (Start game, or the "turn on commentary" button).
     unlock() {
-      if (audio) { audio.src = silentWav(); audio.play().catch(() => {}); }
-      if (synth && Utterance) { const u = new Utterance(' '); u.volume = 0; synth.speak(u); }
+      if (supported) { const u = new Utterance(' '); u.volume = 0; synth.speak(u); }
       unlocked = true;
       changed();
     },

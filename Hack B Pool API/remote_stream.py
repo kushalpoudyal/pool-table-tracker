@@ -143,26 +143,6 @@ def result(match_id: int, final: dict, x_recorder_key: str = Header()):
     return record(match_id, open_game(match_id, x_recorder_key), final)
 
 
-@router.get("/commentary/{line_id}/audio")
-def commentary_audio(line_id: int):
-    """One commentator line as speech (MP3), streamed from the stream server as it is made. 404 when it has
-    none (no voice key there, an old line): the browser then speaks the line's text itself."""
-    url = server_url()
-    try:
-        with ExitStack() as stack:
-            client = stack.enter_context(httpx.Client(timeout=httpx.Timeout(5, read=15)))
-            upstream = stack.enter_context(client.stream("GET", f"{url}/commentary/{line_id}/audio"))
-            if upstream.status_code == 404:
-                raise HTTPException(404, "No audio for this line.")
-            upstream.raise_for_status()
-            resources = stack.pop_all()
-    except httpx.HTTPError as exc:
-        raise HTTPException(502, "Cannot reach the commentary audio.") from exc
-    return StreamingResponse(upstream.iter_raw(), media_type="audio/mpeg",
-                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
-                             background=BackgroundTask(resources.close))
-
-
 @router.get("/video")
 def video():
     url = server_url()

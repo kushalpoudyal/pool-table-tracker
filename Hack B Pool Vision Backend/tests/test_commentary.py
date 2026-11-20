@@ -5,7 +5,7 @@ import unittest
 from unittest import mock
 
 from app import commentator
-from tests.kit import Table, Voice
+from tests.kit import Table
 
 POT_5 = dict(shooting="Ada", potted=[["5", "solid", "top-right", "Ada"]], summary="Ada pots the 5")
 
@@ -86,7 +86,6 @@ class Lines(unittest.TestCase):
         a, b = self.table.lines()
         self.assertLess(a["id"], b["id"])
         self.assertEqual(a["game"], self.table.observer.game_id)
-        self.assertFalse(a["audio"])  # no voice configured: the browser speaks the text
 
     def test_a_new_game_starts_clean_and_keeps_counting_ids(self):
         self.table.look(**POT_5)
@@ -317,40 +316,11 @@ class Settings(unittest.TestCase):
             table.close()
 
     def test_from_env(self):
-        with mock.patch("app.voice.from_env", return_value=None):
-            self.assertFalse(commentator.from_env({"COMMENTARY": "0", "ANTHROPIC_API_KEY": "k"}).enabled)
-            c = commentator.from_env({})
-            self.assertTrue(c.enabled)
-            self.assertIsNone(c.writer)
-            self.assertIsInstance(commentator.from_env({"ANTHROPIC_API_KEY": "k"}).writer, commentator.ClaudeWriter)
-
-
-class Audio(unittest.TestCase):
-    def test_each_line_is_spoken_on_the_server_and_streamed(self):
-        voice = Voice()
-        table = Table(["Ada", "Sam"], voice=voice)
-        try:
-            table.look(**POT_5)
-            line = table.lines()[-1]
-            self.assertTrue(line["audio"])
-            clips = table.observer.commentator.clips
-            self.assertTrue(clips.has(line["id"]))
-            self.assertEqual(b"".join(clips.stream(line["id"])), b"ID3Ada pots the 5 in the top right.")
-            self.assertFalse(clips.has(9999))
-        finally:
-            table.close()
-
-    def test_fixed_wording_is_synthesised_once(self):
-        voice = Voice()
-        table = Table(["Ada", "Sam"], voice=voice)
-        try:
-            for shooter in ("Sam", "Ada", "Sam"):
-                table.look(shooting=shooter)
-            self.assertEqual(voice.spoken.count("Sam to shoot."), 1)
-            last = table.lines()[-1]
-            self.assertEqual(b"".join(table.observer.commentator.clips.stream(last["id"])), b"ID3Sam to shoot.")
-        finally:
-            table.close()
+        self.assertFalse(commentator.from_env({"COMMENTARY": "0", "ANTHROPIC_API_KEY": "k"}).enabled)
+        c = commentator.from_env({})
+        self.assertTrue(c.enabled)
+        self.assertIsNone(c.writer)
+        self.assertIsInstance(commentator.from_env({"ANTHROPIC_API_KEY": "k"}).writer, commentator.ClaudeWriter)
 
 
 if __name__ == "__main__":

@@ -46,7 +46,7 @@ The repo already contains Rackroom (`Hack B Pool API` FastAPI + SQLite, `Hack B 
 - Hybrid: instant template line per event; Claude color line on ~1 in 2 events plus an idle line after >20 s without a shot.
 - Model: Claude Haiku 5.5 (`claude-haiku-5-5`) for live lines, streamed, 1–2 sentences, no facts beyond provided state. Optional Claude Sonnet 5.5 (`claude-sonnet-5-5`) post-game summary.
 - Context: running game state (score, streaks, recent events) plus each player's leaderboard record (record, current and best streak, head-to-head, average balls potted), sent by Rackroom when it starts a table-camera game.
-- Audio (table camera): the stream server makes each line into speech (ElevenLabs Flash v2.5) and streams it to the Controller and Watch screens; the browser's `speechSynthesis` is the fallback.
+- Table camera: the stream server writes the lines; the Controller and Watch screens speak them with `speechSynthesis`.
 - Persona: single calm, dry pro broadcaster with occasional wit; persona is one system prompt, setting left open for future personas.
 - Practice games are announced as such once.
 

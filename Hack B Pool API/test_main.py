@@ -187,7 +187,7 @@ class StreamServerStatsTests(unittest.TestCase):
         self.assertEqual(stats["head_to_head"], {"played": 3, "wins": {"Ada": 2, "Sam": 1}})
 
     def test_the_watch_passthrough_keeps_the_lines(self):
-        lines = [{"id": 3, "text": "Ada pots the 5.", "priority": "normal", "game": "g", "audio": True}]
+        lines = [{"id": 3, "text": "Ada pots the 5.", "priority": "normal", "game": "g"}]
         self.final = {}
         def respond(request):
             return httpx.Response(200, json={"active": True, "players": [], "events": [], "lines": lines})
@@ -195,20 +195,6 @@ class StreamServerStatsTests(unittest.TestCase):
                 transport=httpx.MockTransport(respond), **kwargs)):
             self.assertEqual(self.client.get("/api/stream-server/game").json()["lines"], lines)
 
-    def test_commentary_audio_is_proxied(self):
-        def respond(request):
-            if request.url.path == "/commentary/3/audio":
-                class Clip(httpx.SyncByteStream):
-                    def __iter__(self):
-                        yield b"ID3"
-                        yield b"mp3"
-                return httpx.Response(200, stream=Clip(), headers={"content-type": "audio/mpeg"})
-            return httpx.Response(404)
-        with patch("remote_stream.httpx.Client", side_effect=lambda **kwargs: self.client_type(
-                transport=httpx.MockTransport(respond), **kwargs)):
-            audio = self.client.get("/api/stream-server/commentary/3/audio")
-            self.assertEqual((audio.status_code, audio.content, audio.headers["content-type"]), (200, b"ID3mp3", "audio/mpeg"))
-            self.assertEqual(self.client.get("/api/stream-server/commentary/4/audio").status_code, 404)
 
 
 class TrackerTests(unittest.TestCase):

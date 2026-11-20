@@ -4,7 +4,7 @@
     c.new_game(game_id, players, stats)    # forget the last game's lines; keep the stats Rackroom sent
     c.heard(entry, memory)                 # after each look is applied: entry = Observer._apply's return value
     c.tick()                               # often, from the observer's collecting loop: the quiet-spell line
-    c.lines()                              # [{id, text, priority, game, audio}], oldest first
+    c.lines()                              # [{id, text, priority, game}], oldest first
 
 Two kinds of line:
 
@@ -26,8 +26,7 @@ announced, in-game stats worked out here (pots per player, the run of the player
 since the last pot) and the stats Rackroom sent with POST /game. Nothing else, and the persona says to
 state no fact beyond it.
 
-Each line also becomes speech on the server (app/voice.py) when ELEVENLABS_API_KEY is set: `audio: true`,
-and GET /commentary/{id}/audio streams it. Without it the browser speaks the text itself.
+Rackroom's Controller and Watch screens speak each new line with the browser's speechSynthesis.
 
 The writer is the seam: anything with ask(request, deliver). ClaudeWriter is the real one; tests answer
 requests themselves. `python -m app.commentator` makes one real request and prints the line and its wait.
@@ -40,7 +39,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-from app import calls, voice as voices
+from app import calls
 from app.calls import COLOUR, CRITICAL, NORMAL
 
 log = logging.getLogger(__name__)
@@ -57,7 +56,7 @@ LIMITS = {"solid": 7, "stripe": 7}
 
 PERSONA = (
     "You are the commentator for a live game of 8-ball pool between two amateur players in a club room. "
-    "Your lines are spoken aloud beside the table, straight after the referee's own announcement, so they "
+    "Your lines are read aloud by a speech synthesiser beside the table, straight after the referee's own announcement, so they "
     "have to work as speech.\n\n"
     "Your voice is a calm, dry professional broadcaster: understated, at ease, with occasional wit. You "
     "never shout, gush or make fun of a player.\n\n"
@@ -108,10 +107,9 @@ class _Ticket:
 class Commentator:
     """Every public method is safe from any thread and never raises: the game carries on whatever happens here."""
 
-    def __init__(self, writer=None, *, voice=None, clock=time.monotonic, enabled=True, on_line=None, clips=None):
+    def __init__(self, writer=None, *, clock=time.monotonic, enabled=True, on_line=None):
         self.writer = writer  # None: instant lines only
         self.enabled = enabled  # False (COMMENTARY=0): no lines at all
-        self.clips = clips or (voices.Clips(voice) if voice else None)
         self._clock = clock
         self._on_line = on_line or (lambda line: None)
         self._lock = threading.RLock()
@@ -227,13 +225,10 @@ class Commentator:
             self._ask(QUIET, seconds_since_last_event=int(now - self._last_event))
 
     def _say(self, text, priority):
-        line = {"id": self._next_id, "text": text, "priority": priority, "game": self._game,
-                "audio": self.clips is not None}
+        line = {"id": self._next_id, "text": text, "priority": priority, "game": self._game}
         self._next_id += 1
         if priority == CRITICAL:
             self._criticals += 1
-        if self.clips is not None:
-            self.clips.start(line["id"], text)
         self._lines.append(line)
         self._on_line(dict(line))
         return line
@@ -413,7 +408,6 @@ def from_env(environ=os.environ, **kwargs):
 
     COMMENTARY           0 (or off, false, no): no lines at all. On by default.
     ANTHROPIC_API_KEY    the colour lines; without it, instant lines only. Read here and nowhere else.
-    ELEVENLABS_API_KEY   speech made on the server (app/voice.py); without it, browsers speak the text.
     """
     if not _setting(environ.get("COMMENTARY"), True):
         return Commentator(enabled=False, **kwargs)
@@ -424,7 +418,7 @@ def from_env(environ=os.environ, **kwargs):
         writer = ClaudeWriter(anthropic.Anthropic(api_key=key))
     else:
         log.warning("Colour commentary is off: ANTHROPIC_API_KEY is not set. Instant lines only.")
-    return Commentator(writer, voice=voices.from_env(environ), **kwargs)
+    return Commentator(writer, **kwargs)
 
 
 def _smoke():

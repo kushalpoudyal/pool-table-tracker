@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import { commentaryPlayer, createLineTracker } from './commentary';
 
-// The commentator: plays each new line once (streamed audio, or the browser's voice), with a mute switch
+// The commentator: speaks each new line once with the browser's voice, with a mute switch
 // and the tap that browsers need before a page may make sound. speakExisting: the page started this game
 // (Controller), so its first lines are new too; otherwise the lines already there on load stay quiet.
 function Commentary({lines, speakExisting}) {
@@ -14,8 +14,9 @@ function Commentary({lines, speakExisting}) {
   useEffect(()=>{ for(const line of tracker.current.fresh(lines)) player.say(line); },[lines,player]);
   if(!lines) return null;   // an older stream server: no commentary
   return <div className="commentary">
+    {!player.supported && <p className="commentary-note">This browser cannot speak, so the commentary is only shown here.</p>}
     <div className="commentary-controls">
-      {!player.unlocked && !player.muted && <button className="btn primary" onClick={()=>player.unlock()}>🔊 Tap to turn on commentary</button>}
+      {player.supported && !player.unlocked && !player.muted && <button className="btn primary" onClick={()=>player.unlock()}>🔊 Tap to turn on commentary</button>}
       <button className="text-btn" aria-pressed={player.muted} onClick={()=>player.setMuted(!player.muted)}>
         {player.muted?'Commentary muted · unmute':'Mute commentary'}</button>
     </div>

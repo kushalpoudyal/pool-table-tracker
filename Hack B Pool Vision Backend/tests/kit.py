@@ -57,30 +57,11 @@ class Writer:
         return [r.kind for r, _ in self.asks]
 
 
-class Voice:
-    """Speech made instantly: each chunk names the text it is for."""
-
-    def __init__(self):
-        self.spoken = []
-
-    def synthesize(self, text):
-        self.spoken.append(text)
-        yield b"ID3"
-        yield text.encode()
-
-
-def now(work, *args):
-    work(*args)
-
-
 class Table:
-    def __init__(self, players=("Ada", "Sam"), stats=None, writer=True, voice=None, enabled=True):
+    def __init__(self, players=("Ada", "Sam"), stats=None, writer=True, enabled=True):
         self.clock = Clock()
         self.writer = Writer() if writer else None
-        self.voice = voice
-        from app.voice import Clips
-        clips = Clips(voice, spawn=now) if voice else None
-        commentator = Commentator(self.writer, clock=self.clock, enabled=enabled, clips=clips)
+        commentator = Commentator(self.writer, clock=self.clock, enabled=enabled)
         self.folder = Path(tempfile.mkdtemp(prefix="pool-test-"))
         self.observer = Observer("test", Camera(), lambda: None, active=False, commentator=commentator)
         self.observer.folder, self.observer.log = self.folder / "looks", self.folder / "game.jsonl"
