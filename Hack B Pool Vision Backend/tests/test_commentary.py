@@ -23,6 +23,16 @@ class Lines(unittest.TestCase):
     def test_a_new_game_announces_who_breaks(self):
         self.assertEqual(self.table.said(), [("New game. Ada to break against Sam.", "normal")])
 
+    def test_the_live_camera_says_nothing_before_a_game_starts(self):
+        from app.commentator import Commentator
+        from app.observer import Observer
+        from tests.kit import Camera
+        observer = Observer("idle", Camera(), lambda: None, active=False, commentator=Commentator())
+        try:
+            self.assertEqual(observer.summary()["lines"], [])
+        finally:
+            observer.stop()
+
     def test_a_pot_names_ball_pocket_and_player_once(self):
         self.table.look(**POT_5)
         self.assertEqual(self.last(), ("Ada pots the 5 in the top right.", "normal"))

@@ -90,10 +90,8 @@ class Observer:
         self.lock = threading.Lock()
         self.busy = False
         self.running = True
-        self.new_game([])  # no names: recognise the players from assets/players
+        self.new_game([], announce=active)  # no names: recognise the players from assets/players
         self.active = active  # live only looks between New game and End game; the sandbox from the start
-        if not active:
-            self.commentator.new_game(self.game_id, [])  # no game yet: nothing to announce
         self.moving, self.recent_moves, self.quiet_since = False, [], None
         threading.Thread(target=self._collect, daemon=True).start()
         threading.Thread(target=self._work, daemon=True).start()
@@ -101,11 +99,12 @@ class Observer:
     def stop(self):
         self.running = False
 
-    def new_game(self, players, match=None, report=None, stats=None):
+    def new_game(self, players, match=None, report=None, stats=None, announce=True):
         """players: names in break order, or [] to recognise them from the labelled photos.
         match: the caller's id for this game (Rackroom's match id), kept with the game.
         report: {"url", "token"} to send the final score to once the game is decided (Rackroom records it).
-        stats: each player's record from Rackroom, for the commentator (see app/commentator.py)."""
+        stats: each player's record from Rackroom, for the commentator (see app/commentator.py).
+        announce: the commentator calls the break (not for the live camera's idle state at startup)."""
         if not players and not roster_photos.photos():
             players = ["Player 1", "Player 2"]  # nothing to recognise people from
         with self.lock:
@@ -120,7 +119,7 @@ class Observer:
             self.claimed = None  # the winner the last look named, waiting for the next look to agree
             self.report = report  # not in memory: memory goes to the LLM and the token must not
             self.active = True
-            self.commentator.new_game(self.game_id, players, stats)
+            self.commentator.new_game(self.game_id, players, stats, announce=announce)
 
     def end_game(self):
         with self.lock:

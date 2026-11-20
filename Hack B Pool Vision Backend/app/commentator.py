@@ -120,7 +120,7 @@ class Commentator:
 
     # the game ------------------------------------------------------------------------------------------
 
-    def new_game(self, game, players, stats=None):
+    def new_game(self, game, players, stats=None, announce=True):
         with self._lock:
             self._game, self._stats = game, stats if isinstance(stats, dict) else {}
             self._lines = []
@@ -138,7 +138,7 @@ class Commentator:
             self._last_pot = None
             self._down = {k: 0 for k in LIMITS}  # balls of each group potted, from the observer's memory
             self._started = self._clock()
-            if self.enabled and players:
+            if self.enabled and players and announce:
                 self._say(calls.break_line(players), NORMAL)
 
     def heard(self, entry, memory):
