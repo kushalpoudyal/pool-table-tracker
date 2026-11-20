@@ -6,9 +6,12 @@ rewritten for the observer's facts: which ball, which pocket, by whom, the foul 
 worded it, corrections.
 """
 
+import re
+
 CRITICAL, NORMAL, COLOUR = "critical", "normal", "colour"  # speech priorities, most urgent first
 
 SCRATCH_NOTE = "cue ball potted (scratch)"
+NUMBERS = {"1": "One", "2": "Two", "3": "Three", "4": "Four", "5": "Five", "6": "Six", "7": "Seven"}
 
 
 def ball_name(ball, kind):
@@ -75,6 +78,14 @@ def look_line(entry, before, after):
         if note.startswith("correction: "):
             parts.append("Correction. " + sentence(note.removeprefix("correction: ")))
             critical = True
+        elif note.startswith("table check: ") and "gone from the table" in note:
+            # "table check: 2 solids gone from the table, counted as potted"
+            gone = note.removeprefix("table check: ").split(" gone from the table")[0]
+            count, _, kind = gone.partition(" ")
+            parts.append(f"Table check. {NUMBERS.get(count, count)} {kind} gone, counted as potted.")
+        elif note.startswith("final check: ") and "still on the table" in note:
+            parts.append("Correction. The eight is still on the table. The game goes on.")
+            critical = True
     for p in entry.get("potted") or []:
         parts.append(pot(p))
         event = True
@@ -90,7 +101,12 @@ def look_line(entry, before, after):
         parts.append(groups)
         event = True
     if after.get("winner") and not before.get("winner"):
-        parts.append(f"Game over. {after['winner']} wins.")
+        # the final check's reason, when it decided: "final check: Sam potted the 8 with 2 solids left: Alex wins"
+        why = next((n.removeprefix("final check: ").rsplit(": ", 1)[0] for n in notes
+                    if n.startswith("final check: ") and n.endswith(" wins")), None)
+        why = why and re.sub(r"with 0 (\w+?)s? left", r"with the \1s cleared", why.replace("the 8", "the eight"))
+        reason = sentence(why) + " " if why else ""
+        parts.append(f"Game over. {reason}{after['winner']} wins.")
         critical = event = True
     elif after.get("shooting") and before.get("shooting") and after["shooting"] != before["shooting"] \
             and after["shooting"] in (before.get("players") or []):

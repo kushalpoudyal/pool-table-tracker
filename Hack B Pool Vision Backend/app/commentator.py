@@ -190,7 +190,7 @@ class Commentator:
         self._potted = {}
         for b in memory.get("potted") or []:
             self._potted.setdefault(b.get("by"), []).append(str(b.get("ball")))
-        corrected = any(n.startswith("correction: ") for n in entry.get("notes") or [])
+        corrected = any(n.startswith(("correction: ", "table check: ", "final check: ")) for n in entry.get("notes") or [])
         if corrected:
             self._recent, self._run = [], None  # the notes before it may describe the pot that wasn't
         if entry.get("summary"):
@@ -203,7 +203,8 @@ class Commentator:
         if event:
             self._events += 1
             self._last_event, self._quiet_asked = self._clock(), False
-            if not after["winner"] and self._events % 2 == 1:
+            eight = any(p.get("kind") == "eight" for p in entry.get("potted") or [])  # the final check decides
+            if not after["winner"] and not eight and self._events % 2 == 1:
                 self._ask(SHOT, just_announced=text)
 
     def _rename(self, seen, old, new):

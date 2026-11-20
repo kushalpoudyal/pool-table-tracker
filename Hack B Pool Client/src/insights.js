@@ -98,7 +98,7 @@ export function highlights(players, matches, standings, now = new Date()) {
   if (rivalry?.n >= 3) out.push({key: 'rivalry', kicker: 'Biggest rivalry', title: `${name(rivalry.lo)} vs ${name(rivalry.hi)}`, detail: `${rivalry.n} games so far · ${rivalry.lo_w}–${rivalry.n - rivalry.lo_w}.`, ball: 8});
 
   const busiest = [...standings].sort((x, y) => y.played - x.played)[0];
-  if (busiest?.played) out.push({key: 'busy', kicker: 'Most games played', title: `${busiest.name} · ${busiest.played} games`, detail: 'Nobody has spent more time at the table.', ball: 4});
+  if (busiest?.played) out.push({key: 'busy', kicker: 'Most games played', title: `${busiest.name} · ${busiest.played} game${busiest.played === 1 ? '' : 's'}`, detail: 'Nobody has spent more time at the table.', ball: 4});
 
   const today = games.filter(m => sameDay(m.started, now)).length;
   if (today) out.push({key: 'today', kicker: 'Today', title: `${today} game${today === 1 ? '' : 's'} played today`, detail: 'Every confirmed result counts toward the board.', ball: 2});

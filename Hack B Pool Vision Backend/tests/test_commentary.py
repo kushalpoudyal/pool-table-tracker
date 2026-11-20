@@ -8,6 +8,8 @@ from app import commentator
 from tests.kit import Table
 
 POT_5 = dict(shooting="Ada", potted=[["5", "solid", "top-right", "Ada"]], summary="Ada pots the 5")
+# Ada pots the 8 with no solids left on the table: the final check (a table check) decides she has won
+WIN = dict(shooting="Ada", groups={"Ada": "solids"}, potted=[["8", "eight", "corner", "Ada"]], check={"solid": 0})
 
 
 class Lines(unittest.TestCase):
@@ -42,7 +44,7 @@ class Lines(unittest.TestCase):
 
     def test_the_eight_is_called_the_eight(self):
         self.table.look(shooting="Ada", potted=[["8", "eight", "side", "Ada"]])
-        self.assertEqual(self.last()[0], "Ada pots the eight in the side.")
+        self.assertIn("Ada pots the eight in the side.", self.table.texts())
 
     def test_a_scratch_is_critical(self):
         self.table.look(shooting="Ada", potted=[["cue", "cue", "corner", "Ada"]])
@@ -62,7 +64,7 @@ class Lines(unittest.TestCase):
         self.assertEqual(len(self.table.lines()), before)
 
     def test_a_turn_change(self):
-        self.table.look(shooting="Sam", summary="Ada misses")
+        self.table.turn("Sam", summary="Ada misses")  # the observer takes two looks to agree
         self.assertEqual(self.last(), ("Sam to shoot.", "normal"))
 
     def test_no_turn_line_when_the_same_player_stays_at_the_table(self):
@@ -74,12 +76,24 @@ class Lines(unittest.TestCase):
         self.table.look(shooting="Ada", back=["5"])
         self.assertEqual(self.last(), ("Correction. The 5 is still on the table, not potted.", "critical"))
 
-    def test_the_winner_is_announced_once_two_looks_agree(self):
-        self.table.look(shooting="Ada", potted=[["8", "eight", "corner", "Ada"]], winner="Ada")
-        self.assertNotIn("wins", self.last()[0])
-        self.table.look(shooting="Ada", winner="Ada")
-        self.assertEqual(self.last(), ("Game over. Ada wins.", "critical"))
-        self.assertEqual(self.table.observer.summary(None)["lines"][-1]["text"], "Game over. Ada wins.")
+    def test_the_winner_is_announced_with_the_final_checks_reason(self):
+        self.table.look(**WIN)
+        text, priority = self.last()
+        self.assertTrue(text.endswith("Game over. Ada potted the eight with the solids cleared. Ada wins."), text)
+        self.assertEqual(priority, "critical")
+        self.assertEqual(self.table.observer.summary(None)["lines"][-1]["text"], text)
+
+    def test_the_eight_potted_early_loses(self):
+        self.table.look(shooting="Ada", groups={"Ada": "solids"}, potted=[["8", "eight", "corner", "Ada"]])
+        self.assertEqual(self.last()[0], "Game over. Ada potted the eight with 7 solids left. Sam wins.")
+
+    def test_the_eight_still_on_the_table_is_a_correction(self):
+        self.table.look(shooting="Ada", potted=[["8", "eight", "corner", "Ada"]], check={"eight": 1})
+        self.assertEqual(self.last(), ("Correction. The eight is still on the table. The game goes on.", "critical"))
+
+    def test_pots_the_table_check_finds_are_said(self):
+        self.table.look(shooting="Ada", groups={"Ada": "solids"}, settled=True, check={"solid": 5})
+        self.assertEqual(self.last()[0], "Table check. Two solids gone, counted as potted.")
 
     def test_lines_carry_id_priority_and_game(self):
         self.table.look(**POT_5)
@@ -96,12 +110,12 @@ class Lines(unittest.TestCase):
 
     def test_the_watch_payload_keeps_its_fields_and_the_latest_20_lines(self):
         for i in range(12):
-            self.table.look(shooting="Sam" if i % 2 == 0 else "Ada")
+            self.table.turn("Sam" if i % 2 == 0 else "Ada")
         watch = self.table.observer.summary()
         self.assertEqual(set(watch), {"active", "match", "winner", "players", "events", "lines"})
         self.assertEqual(len(watch["lines"]), 13)
         for i in range(10):
-            self.table.look(shooting="Sam" if i % 2 == 0 else "Ada")
+            self.table.turn("Sam" if i % 2 == 0 else "Ada")
         self.assertEqual(len(self.table.observer.summary()["lines"]), 20)
         self.assertEqual(len(self.table.observer.summary(None)["lines"]), 23)
 
@@ -120,8 +134,9 @@ class Guests(unittest.TestCase):
                  mock.patch("app.observer.roster_photos.roster", return_value=([{"name": "Ada", "looks": ""},
                                                                                 {"name": "Kit", "looks": ""}], None)):
                 table.look(shooting="Guest", playing=["Ada", "Kit"])
+                table.turn("Kit")
                 table.look(shooting="Kit", potted=[["12", "stripe", "side", "Kit"]])
-            self.assertIn("That's Kit at the table.", table.texts()[-2])
+            self.assertTrue(any("That's Kit at the table." in t for t in table.texts()))
             self.assertEqual(table.texts()[-1], "Kit pots the 12 in the side.")
         finally:
             table.close()
@@ -138,7 +153,7 @@ class Colour(unittest.TestCase):
         self.table.close()
 
     def event(self, shooter="Sam"):
-        self.table.look(shooting=shooter)
+        self.table.turn(shooter)
 
     def test_asked_on_the_first_third_and_fifth_event(self):
         asked_at = []
@@ -174,8 +189,8 @@ class Colour(unittest.TestCase):
         self.table.look(**POT_5)  # 1st event: asked
         self.writer.answer(None)
         self.table.look(shooting="Ada", back=["5"])  # the correction
-        self.table.look(shooting="Sam", summary="Ada misses")  # 2nd event
-        self.table.look(shooting="Ada", summary="Sam misses")  # 3rd event: asked
+        self.table.turn("Sam", summary="Ada misses")  # 2nd event
+        self.table.turn("Ada", summary="Sam misses")  # 3rd event: asked
         context = self.writer.asks[-1][0].context
         self.assertEqual(context["players"][0]["balls_potted_this_game"], [])
         self.assertIsNone(context["current_run"])
@@ -185,8 +200,8 @@ class Colour(unittest.TestCase):
     def test_the_writer_is_told_its_previous_lines(self):
         self.table.look(**POT_5)
         self.writer.answer("Composed start from Ada.")
-        self.table.look(shooting="Sam")
-        self.table.look(shooting="Ada")
+        self.table.turn("Sam")
+        self.table.turn("Ada")
         self.assertEqual(self.writer.asks[-1][0].context["your_previous_lines"], ["Composed start from Ada."])
 
     def test_missing_stats_are_fine(self):
@@ -238,19 +253,15 @@ class Colour(unittest.TestCase):
         self.writer.answer("**One.** Two! Three? Four.")
         self.assertEqual(self.table.texts()[-1], "One. Two!")
 
-    def test_never_asked_on_the_winning_look(self):
-        self.table.look(shooting="Ada", potted=[["8", "eight", "corner", "Ada"]], winner="Ada")  # 1st event: asked
-        self.writer.answer(None)
-        self.table.look(shooting="Ada", winner="Ada")  # winner decided; would be the 2nd anyway
-        self.table.look(shooting="Ada")
-        self.assertEqual(len(self.writer.asks), 1)
+    def test_never_asked_on_a_look_that_pots_the_eight(self):
+        self.table.look(**WIN)  # 1st event, but the final check is deciding the game
+        self.assertEqual(self.writer.asks, [])
 
     def test_no_colour_over_the_winner(self):
-        self.table.look(shooting="Sam")  # 1st event: asked
-        self.table.look(shooting="Ada", winner="Ada")
-        self.table.look(shooting="Ada", winner="Ada")
+        self.event("Sam")  # 1st event: asked
+        self.table.look(**WIN)
         self.writer.answer("What a finish.")
-        self.assertEqual(self.table.texts()[-1], "Game over. Ada wins.")
+        self.assertTrue(self.table.texts()[-1].endswith("Ada wins."))
 
     def test_a_correction_alone_asks_for_nothing(self):
         self.table.look(**POT_5)
@@ -281,7 +292,7 @@ class QuietSpell(unittest.TestCase):
         self.assertEqual(self.writer.asks, [])
 
     def test_once_per_spell_after_20_seconds(self):
-        self.table.look(shooting="Sam")
+        self.table.turn("Sam")
         self.writer.answer(None)
         self.writer.asks.clear()
         self.clock.advance(19)
@@ -297,19 +308,18 @@ class QuietSpell(unittest.TestCase):
         self.assertEqual(self.table.said()[-1], ("Sam is taking his time over this one.", "colour"))
 
     def test_a_new_event_starts_a_new_spell(self):
-        self.table.look(shooting="Sam")
+        self.table.turn("Sam")
         self.writer.answer(None)
         self.clock.advance(21)
         self.tick()
         self.writer.answer(None, 1)
-        self.table.look(shooting="Ada")  # 2nd event: no shot request
+        self.table.turn("Ada")  # 2nd event: no shot request
         self.clock.advance(21)
         self.tick()
         self.assertEqual(self.writer.kinds, ["shot", "quiet", "quiet"])
 
     def test_none_after_the_winner(self):
-        self.table.look(shooting="Ada", winner="Ada")
-        self.table.look(shooting="Ada", winner="Ada")  # the only event, and it decides the game: no request
+        self.table.look(**WIN)  # the only event, and it decides the game: no request
         self.clock.advance(60)
         self.tick()
         self.assertEqual(self.writer.kinds, [])

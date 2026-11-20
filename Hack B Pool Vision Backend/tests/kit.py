@@ -71,8 +71,10 @@ class Table:
         self.observer.stop()
         shutil.rmtree(self.folder, ignore_errors=True)
 
-    def look(self, **answer):
-        """One look whose LLM answer is `answer` (keys as in the observer's prompt), applied like a real one."""
+    def look(self, settled=False, check=None, **answer):
+        """One look whose LLM answer is `answer` (keys as in the observer's prompt), applied like a real one.
+        settled: the shot is over, so the table check runs. check: what a table check sees, as counts that
+        override the default (every ball not yet potted, the whole table in view), e.g. {"solid": 0}."""
         full = {"shooting": None, "playing": [], "potted": [], "back": [], "groups": None, "foul": None,
                 "looks": {}, "on_table": [], "winner": None, "summary": "", **answer}
 
@@ -80,12 +82,27 @@ class Table:
             early(full["shooting"])
             return full
 
+        def table_check(prompt, images, *args, **kwargs):
+            down = {str(b["ball"]) for b in self.observer.memory["potted"]}
+            every = [[str(n), None, kind] for kind, numbers in (("solid", range(1, 8)), ("stripe", range(9, 16)),
+                                                                ("eight", [8])) for n in numbers]
+            balls = [b for b in every if b[0] not in down] + [["0", None, "cue"]]
+            for kind, count in (check or {}).items():  # exactly `count` balls of that kind on the table
+                balls = [b for b in balls if b[2] != kind] + [b for b in every if b[2] == kind][:count]
+            return {"whole_table": True, "balls": balls}
+
         frames = [(t, np.zeros((36, 64, 3), np.uint8)) for t in (0.0, 1.0)]
-        with unittest.mock.patch.object(llm, "stream_json", stream_json):
-            self.observer._handle(self.observer.game_id, frames)
+        with unittest.mock.patch.object(llm, "stream_json", stream_json), \
+                unittest.mock.patch.object(llm, "ask_json", table_check):
+            self.observer._handle(self.observer.game_id, frames, settled)
         errors = [f["error"] for f in self.observer.feed if f.get("error")]
         if errors:
             raise AssertionError(errors[0])
+
+    def turn(self, shooter, **answer):
+        """The table changes hands: two looks in a row that see `shooter` at the table (one isn't enough)."""
+        self.look(shooting=shooter, **answer)
+        self.look(shooting=shooter, **answer)
 
     def lines(self):
         return self.observer.summary()["lines"]

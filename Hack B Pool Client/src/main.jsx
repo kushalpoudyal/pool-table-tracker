@@ -56,6 +56,23 @@ function MatchDetails({d}) {
   </div>;
 }
 
+// On desktop the standings scroll inside their card (CSS caps the height). This tracks whether
+// rows are hidden below, so the bottom edge fades only when there is more to see.
+function useScrollFade() {
+  const [el,setEl] = useState(null);
+  const [more,setMore] = useState(false);
+  useEffect(()=>{
+    if (!el) return;
+    const update=()=>setMore(el.scrollHeight - el.clientHeight - el.scrollTop > 2);
+    update();
+    el.addEventListener('scroll',update,{passive:true});
+    const resize=new ResizeObserver(update);
+    resize.observe(el); if (el.firstElementChild) resize.observe(el.firstElementChild);
+    return ()=>{el.removeEventListener('scroll',update);resize.disconnect();};
+  },[el]);
+  return [setEl,more];
+}
+
 function Dashboard({board, add, ready}) {
   const {players,matches} = board;
   const finished = matches.filter(m=>m.status === 'complete');
@@ -64,6 +81,7 @@ function Dashboard({board, add, ready}) {
   const ranks = new Map(sorted.map(p=>[p.id,p]));
   const name = id => ranks.get(id)?.name ?? 'Unknown';
   const [filter,setFilter] = useState('all');
+  const [scroller,moreBelow] = useScrollFade();
   const [profile,setProfile] = useState(null);
   const closeProfile = useCallback(()=>setProfile(null),[]);
   const celebration = useCelebration(board, ready);
@@ -92,14 +110,14 @@ function Dashboard({board, add, ready}) {
     </div>
     {matches.some(m=>m.status==='recording') && <section className="panel watch-banner" data-reveal><div><p className="kicker"><span className="live-dot"/>At the table now</p><h2>Game in progress</h2><p>Open Watch games to see the live feed from the phone.</p></div><a className="btn primary" href="/watch">Watch games &rarr;</a></section>}
     <div className="columns"><section className="panel" id="standings" data-reveal><header className="standings-head"><div><p className="kicker">Standings</p><h2><a href="/leaderboard">Leaderboard</a></h2><p>Ranked by wins, then fewest losses. Select a player for their profile.</p></div><a className="btn full-screen" href="/leaderboard">Full screen <span aria-hidden="true">⤢</span></a></header>
-      {sorted.length > 0 && <table><thead><tr>{['Rank','Player','Form','W','L','Win %'].map(h=><th scope="col" key={h}>{h}</th>)}</tr></thead><tbody>
+      {sorted.length > 0 && <div className={`standings-scroll${moreBelow?' more':''}`} ref={scroller}><table><thead><tr>{['Rank','Player','Form','W','L','Win %'].map(h=><th scope="col" key={h}>{h}</th>)}</tr></thead><tbody>
         {sorted.map((p,i)=>{
           const {winRate} = p;
-          return <tr key={p.id} className={i < 3 ? `top top-${i+1}` : undefined} style={{'--i': i}}><td><RankChip rank={i+1}/></td><th scope="row"><button type="button" className="player-link" onClick={()=>setProfile(p.id)}>{p.name}<Streak streak={p.streak}/></button></th><td className="form-cell"><Form results={p.form}/></td><td>{p.wins}</td><td>{p.losses}</td><td>
+          return <tr key={p.id} className={i < 3 ? `top-${i+1}` : undefined} style={{'--i': i}}><td><RankChip rank={i+1}/></td><th scope="row"><button type="button" className="player-link" onClick={()=>setProfile(p.id)}>{p.name}<Streak streak={p.streak}/></button></th><td className="form-cell"><Form results={p.form}/></td><td>{p.wins}</td><td>{p.losses}</td><td>
             {winRate === null ? '–' : <span className="win-rate"><span aria-hidden="true" className="win-track"><span style={{width: `${winRate}%`}}/></span>{winRate}%</span>}
           </td></tr>;
         })}
-      </tbody></table>}
+      </tbody></table></div>}
       {!sorted.length && <div className="empty"><Ball3D n={1} size={44} float/><h3>{ready?'The ladder is open':'Loading standings'}</h3><p>{ready?'Add your first player to claim a spot on the board.':'Connecting to the clubhouse.'}</p></div>}
     </section>
     <aside className="panel entry" data-reveal style={{'--d': '120ms'}}><p className="kicker">Membership</p><h2>Add a player</h2><p>New players can be selected in the controller.</p><PlayerEntry onAdded={add}/></aside></div>
