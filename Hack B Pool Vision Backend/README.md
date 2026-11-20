@@ -115,26 +115,31 @@ screens.
   observer's reason, groups taken, a turn change ("Sam to shoot."), a correction ("Correction. The 5 is
   still on the table, not potted."), a recognised player, the winner ("Game over. Ada wins."). One
   line per look. Critical: winner, foul, scratch, correction. Normal: the rest.
-- **Colour lines** from Claude Haiku 5.5 (`claude-haiku-5-5`, streamed, thinking off, low effort) as a
-  calm, dry broadcaster: on the 1st, 3rd, 5th ... look that holds play (never on the look that decides
+- **Colour lines** from a fast LLM as a calm, dry broadcaster: `openai/gpt-6-luna` through the team's
+  Bifrost gateway (streamed, reasoning off, ~2.5-4 s a line) when `BIFROST_URL` is set, else Claude
+  Haiku 5.5 (`claude-haiku-5-5`, streamed, thinking off, low effort): on the 1st, 3rd, 5th ... look that holds play (never on the look that decides
   the winner), and once per quiet spell 20 s after the last event. One request in flight; an answer is
   dropped if the game moved on, a critical line went out, it took over 5 s, or it is empty. It is told
-  the running game, in-game stats (pots, fouls, scratches, the current run, time since the last pot)
-  and the players' records Rackroom sends with `POST /game`, and states nothing beyond them.
+  the running game, in-game stats (balls potted by each, fouls, scratches, the current run, time since
+  the last pot), the last few spoken announcements (a correction wins over an earlier pot), the
+  observer's own written commentary of the last looks, its own earlier lines (so it doesn't repeat
+  itself) and the players' records Rackroom sends with `POST /game`, and states nothing beyond them.
 - **Heard** on Rackroom's Controller and Watch screens, spoken by the browser's `speechSynthesis`
   (one line at a time, critical first; mute and an iOS tap-to-enable on the page).
 - **Logged** with the looks in `logs/game-<live|sandbox>.jsonl` (`"line": {...}` records).
-- **Cost:** instant lines nothing; colour about 1k input + 30 output tokens a request on Haiku 5.5
-  ($0.10 / $0.50 per 1M); speech free (the browser's).
+- **Cost:** instant lines nothing; colour about 1k input + 40 output tokens a request, a few requests
+  a game (gpt-6-luna lists at $0.10 / $0.50 per 1M, as does Haiku 5.5); speech free (the browser's).
 
 Settings (`.env`, all optional; keys stay on the server):
 
 | Setting | |
 |---|---|
-| `ANTHROPIC_API_KEY` | colour lines; without it, instant lines only |
+| `BIFROST_URL`, `BIFROST_API_KEY` | the LLM gateway for colour lines (`https://` added if missing); preferred when set |
+| `COMMENTARY_MODEL` | the gateway model (default `openai/gpt-6-luna`) |
+| `ANTHROPIC_API_KEY` | else colour lines from Claude Haiku 5.5; with neither, instant lines only |
 | `COMMENTARY=0` | no lines at all (a silent demo) |
 
-`python -m app.commentator` asks Claude for one real colour line and prints it with the wait.
+`python -m app.commentator` asks for one real colour line (gateway or Claude) and prints it with the wait.
 
 Tests (no camera, model download or network): `.venv\Scripts\python -m unittest` from this folder.
 They drive the observer with a stub camera, scripted look answers, a fake writer and a fake clock.

@@ -48,7 +48,7 @@ Not in the MVP: calibration, tracking, rules, voice, FastAPI, OpenVINO, AWS.
 | Ball detection | Ultralytics YOLO26n fine-tuned on Roboflow "8-Ball Pool" + our own frames, run with OpenVINO on the laptop's Intel iGPU, ByteTrack for IDs |
 | Game logic | Python shot state machine (moving / still, before / after ball counts) + simplified 8-ball rules engine |
 | Server + UI | One FastAPI app: MJPEG video stream + WebSocket events → one static HTML page |
-| Voice | Stream server: instant template lines + Claude Haiku 5.5 colour, spoken by Rackroom's Controller and Watch screens with browser `speechSynthesis`; see the vision backend README, Commentator |
+| Voice | Stream server: instant template lines + colour from gpt-6-luna via the Bifrost gateway (Claude Haiku 5.5 as the alternative), spoken by Rackroom's Controller and Watch screens with browser `speechSynthesis`; see the vision backend README, Commentator |
 
 ## Open questions
 

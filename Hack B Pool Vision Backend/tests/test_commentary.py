@@ -161,13 +161,33 @@ class Colour(unittest.TestCase):
         context = self.writer.asks[0][0].context
         self.assertEqual(context["just_announced"], "Ada pots the 5 in the top right. Ada takes solids. Sam has stripes.")
         ada = context["players"][0]
-        self.assertEqual((ada["name"], ada["group"], ada["balls_left"], ada["balls_potted_this_game"]), ("Ada", "solids", 6, 1))
+        self.assertEqual((ada["name"], ada["group"], ada["balls_left"], ada["balls_potted_this_game"]), ("Ada", "solids", 6, ["5"]))
         self.assertEqual(context["current_run"], {"player": "Ada", "balls_in_a_row": 1})
         self.assertEqual(context["records"]["Ada"]["streak"], {"type": "W", "n": 3})
         self.assertEqual(context["records"]["Sam"], {"first_recorded_game": True})
         self.assertEqual(context["head_to_head"], {"played": 2, "wins": {"Ada": 2}})
-        self.assertEqual(context["recent_looks"], ["Ada pots the 5"])
+        self.assertEqual(context["referee_notes"], ["Ada pots the 5"])
+        self.assertEqual(context["recent_announcements"][-1], context["just_announced"])
         self.assertEqual(self.writer.asks[0][0].model, "claude-haiku-5-5")
+
+    def test_a_corrected_pot_is_gone_from_the_next_request(self):
+        self.table.look(**POT_5)  # 1st event: asked
+        self.writer.answer(None)
+        self.table.look(shooting="Ada", back=["5"])  # the correction
+        self.table.look(shooting="Sam", summary="Ada misses")  # 2nd event
+        self.table.look(shooting="Ada", summary="Sam misses")  # 3rd event: asked
+        context = self.writer.asks[-1][0].context
+        self.assertEqual(context["players"][0]["balls_potted_this_game"], [])
+        self.assertIsNone(context["current_run"])
+        self.assertIn("Correction. The 5 is still on the table, not potted.", context["recent_announcements"])
+        self.assertNotIn("Ada pots the 5", context["referee_notes"])
+
+    def test_the_writer_is_told_its_previous_lines(self):
+        self.table.look(**POT_5)
+        self.writer.answer("Composed start from Ada.")
+        self.table.look(shooting="Sam")
+        self.table.look(shooting="Ada")
+        self.assertEqual(self.writer.asks[-1][0].context["your_previous_lines"], ["Composed start from Ada."])
 
     def test_missing_stats_are_fine(self):
         table = Table(["Ada", "Sam"], stats=None)
